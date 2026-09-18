@@ -272,7 +272,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	redisErrorIngestRunner := poller.NewRedisErrorIngestRunner(redisErrorSubscribeSource, errorEventService)
 	var codexProxyRunner Runner
 	if cfg.CodexProxyBaseURL != "" {
-		codexProxyRunner = poller.NewCodexProxyRunner(db, codexproxy.NewClient(cfg.CodexProxyBaseURL, cfg.CodexProxyToken, cfg.RequestTimeout), cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
+		runner := poller.NewCodexProxyRunner(db, codexproxy.NewClient(cfg.CodexProxyBaseURL, cfg.CodexProxyToken, cfg.RequestTimeout), cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
+		runner.SetPostCommitHooks(recentUsageCache, usageAggregationRunner)
+		codexProxyRunner = runner
 	}
 	// backgroundPoller 继续组合远端 ingest 和本地 process 的状态展示。
 	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)

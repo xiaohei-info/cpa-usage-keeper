@@ -18,7 +18,11 @@ const codexProxyCheckpointName = "codex-proxy:keeper-events"
 // the cursor in one transaction. Replaying a page is safe because event IDs are
 // checked before insertion.
 type CodexProxyRunner struct {
-	db       *gorm.DB
+	db     *gorm.DB
+	recent interface {
+		TryAppend([]entities.UsageEvent) bool
+	}
+	notifier interface{ NotifyUsageEventsCommitted([]entities.UsageEvent) }
 	client   *codexproxy.Client
 	interval time.Duration
 	limit    int
@@ -54,6 +58,12 @@ func (r *CodexProxyRunner) Run(ctx context.Context) error {
 	}
 }
 
+func (r *CodexProxyRunner) SetPostCommitHooks(recent interface {
+	TryAppend([]entities.UsageEvent) bool
+}, notifier interface{ NotifyUsageEventsCommitted([]entities.UsageEvent) }) {
+	r.recent, r.notifier = recent, notifier
+}
+
 func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
 	var checkpoint entities.CodexProxyCheckpoint
 	if err := r.db.WithContext(ctx).Where("name = ?", codexProxyCheckpointName).First(&checkpoint).Error; err != nil && err != gorm.ErrRecordNotFound {
@@ -72,7 +82,8 @@ func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
 		}
 		return nil
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var committed []entities.UsageEvent
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, raw := range page.Events {
 			claim := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&entities.CodexProxyEventIdentity{
 				EventID:   raw.EventID,
@@ -91,6 +102,7 @@ func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
 			if err := tx.Create(&event).Error; err != nil {
 				return fmt.Errorf("insert codex proxy usage event: %w", err)
 			}
+			committed = append(committed, event)
 		}
 		next := page.NextCursor
 		if next < checkpoint.Cursor {
@@ -98,7 +110,18 @@ func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
 		}
 		row := entities.CodexProxyCheckpoint{Name: codexProxyCheckpointName, Cursor: next, UpdatedAt: time.Now()}
 		return tx.Save(&row).Error
-	})
+	}); err != nil {
+		return err
+	}
+	if len(committed) > 0 {
+		if r.recent != nil {
+			r.recent.TryAppend(committed)
+		}
+		if r.notifier != nil {
+			r.notifier.NotifyUsageEventsCommitted(committed)
+		}
+	}
+	return nil
 }
 
 func (r *CodexProxyRunner) LastError() error { r.mu.Lock(); defer r.mu.Unlock(); return r.lastErr }
