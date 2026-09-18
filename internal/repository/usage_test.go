@@ -125,6 +125,28 @@ func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T
 	}
 }
 
+func TestBuildAnalysisIncludesOrphanCodexOverviewStatsOnly(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	rows := []entities.UsageOverviewHourlyStat{
+		{BucketStart: bucket, APIGroupKey: "orphan-codex", Model: "gpt-5", ExecutorType: "CodexExecutor", RequestCount: 1, InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
+		{BucketStart: bucket, APIGroupKey: "orphan-other", Model: "gpt-5", ExecutorType: "OtherExecutor", RequestCount: 1, InputTokens: 100, OutputTokens: 200, TotalTokens: 300},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("insert orphan overview stats: %v", err)
+	}
+	start := bucket
+	end := bucket.Add(time.Hour)
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	if len(analysis.TokenUsage) != 1 || analysis.TokenUsage[0].TotalTokens != 30 || len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].Key != "orphan-codex" {
+		t.Fatalf("expected only orphan Codex stats in analysis, got %+v", analysis)
+	}
+}
+
 func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)

@@ -69,13 +69,15 @@ func analysisOverviewProjectionColumns(activeFields pricing.ActiveFields) string
 
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+		Joins("LEFT JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false).
+		Where("cpa_api_keys.id IS NOT NULL OR usage_overview_hourly_stats.executor_type = ?", "CodexExecutor")
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "hourly", activeFields)
 }
 
 func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	query := db.Model(&entities.UsageOverviewDailyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+		Joins("LEFT JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false).
+		Where("cpa_api_keys.id IS NOT NULL OR usage_overview_daily_stats.executor_type = ?", "CodexExecutor")
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "daily", activeFields)
 }
 
