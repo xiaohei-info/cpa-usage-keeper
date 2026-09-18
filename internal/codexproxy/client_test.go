@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"cpa-usage-keeper/internal/service/tokenprocessor"
 )
 
 func TestPullAndMap(t *testing.T) {
@@ -31,7 +33,7 @@ func TestPullAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.AuthIndex != "acct" || u.TotalTokens != 12 || u.CachedTokens != 8 || u.ReasoningTokens != 1 || u.Failed {
+	if u.AuthIndex != "acct" || u.ExecutorType != tokenprocessor.CodexExecutor || u.TotalTokens != 12 || u.CachedTokens != 8 || u.ReasoningTokens != 1 || u.Failed {
 		t.Fatalf("usage=%+v", u)
 	}
 }

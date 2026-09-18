@@ -3,9 +3,11 @@ package tokenprocessor
 // CodexExecutor 维护说明：CPA ParseCodexUsage/ParseOpenAIUsage 的 Input 已含 cached 子项、Output 已含 reasoning；
 // CPA 更新时需复核 normalizeUsageDetailTotal、usageQueuePlugin.HandleUsage、EnsurePublished 与 PublishAdditionalModel。
 // 还需复核 NewExecutorUsageReporter、ExecutorTypeName 和 Codex reporter 创建位置，确认记录确实来自本 parser 合同。
+const CodexExecutor = "CodexExecutor"
+
 var codexExecutorDefinition = executorDefinition{
 	// alias 与 CPA Codex Go 类型完全对应，只授予 Responses 父级字段与 Total 合同。
-	alias: "CodexExecutor",
+	alias: CodexExecutor,
 	// Responses handler 保持 Input/Output inclusive；缓存别名继续复用生产旧规则。
 	handlerID: HandlerResponsesInclusive,
 }
