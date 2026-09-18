@@ -43,6 +43,24 @@ func TestAppCloseClosesDatabase(t *testing.T) {
 	}
 }
 
+func TestNewWithConfigCodexOnlyLeavesCPARunnersDisabled(t *testing.T) {
+	cfg := testAppConfig(t)
+	cfg.CPABaseURL = ""
+	cfg.CPAManagementKey = ""
+	cfg.CodexProxyBaseURL = "http://127.0.0.1:1"
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+	if app.RedisIngest != nil || app.RedisProcess != nil || app.CPAErrors != nil || app.MetadataSync != nil || app.QuotaService != nil || app.QuotaAutoRefresh != nil {
+		t.Fatalf("expected CPA runners disabled in Codex-only mode: ingest=%v process=%v errors=%v metadata=%v quota=%v auto=%v", app.RedisIngest != nil, app.RedisProcess != nil, app.CPAErrors != nil, app.MetadataSync != nil, app.QuotaService != nil, app.QuotaAutoRefresh != nil)
+	}
+	if app.CodexProxy == nil {
+		t.Fatal("expected Codex runner to remain enabled")
+	}
+}
+
 func TestNewWithConfigBuildsQuotaAutoRefreshRunner(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t))
 	if err != nil {

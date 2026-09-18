@@ -276,8 +276,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		runner.SetPostCommitHooks(recentUsageCache, usageAggregationRunner)
 		codexProxyRunner = runner
 	}
-	// backgroundPoller 继续组合远端 ingest 和本地 process 的状态展示。
-	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
+	// Codex-only is an extension mode: do not expose or start the CPA poller at all.
+	// Keep the locally-built sources out of the App graph so status requests cannot
+	// accidentally revive the CPA Redis path.
+	var backgroundPoller *poller.RedisPoller
+	if cpaConfigured {
+		backgroundPoller = poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
+	}
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
 		// 备份继续借用唯一 writer 连接，保持旧版串行快照语义，避免独立连接持续写入时反复重启在线备份。
