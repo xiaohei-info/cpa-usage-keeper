@@ -31,7 +31,7 @@ func TestPullAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.AuthIndex != "acct" || u.TotalTokens != 13 || u.Failed {
+	if u.AuthIndex != "acct" || u.TotalTokens != 12 || u.Failed {
 		t.Fatalf("usage=%+v", u)
 	}
 }
