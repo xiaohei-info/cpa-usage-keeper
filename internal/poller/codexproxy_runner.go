@@ -1,0 +1,104 @@
+package poller
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"cpa-usage-keeper/internal/codexproxy"
+	"cpa-usage-keeper/internal/entities"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const codexProxyCheckpointName = "codex-proxy:keeper-events"
+
+// CodexProxyRunner pulls durable, cursor-addressed events and commits usage plus
+// the cursor in one transaction. Replaying a page is safe because event IDs are
+// checked before insertion.
+type CodexProxyRunner struct {
+	db       *gorm.DB
+	client   *codexproxy.Client
+	interval time.Duration
+	limit    int
+	mu       sync.Mutex
+	lastErr  error
+}
+
+func NewCodexProxyRunner(db *gorm.DB, client *codexproxy.Client, interval time.Duration, limit int) *CodexProxyRunner {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	return &CodexProxyRunner{db: db, client: client, interval: interval, limit: limit}
+}
+
+func (r *CodexProxyRunner) Run(ctx context.Context) error {
+	if r == nil || r.db == nil || r.client == nil {
+		return fmt.Errorf("codex proxy runner dependencies are missing")
+	}
+	for {
+		if err := r.PullOnce(ctx); err != nil {
+			r.mu.Lock()
+			r.lastErr = err
+			r.mu.Unlock()
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(r.interval):
+		}
+	}
+}
+
+func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
+	var checkpoint entities.CodexProxyCheckpoint
+	if err := r.db.WithContext(ctx).Where("name = ?", codexProxyCheckpointName).First(&checkpoint).Error; err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+	page, err := r.client.Pull(ctx, checkpoint.Cursor, r.limit)
+	if err != nil {
+		return err
+	}
+	if page.CursorGap {
+		return fmt.Errorf("codex proxy cursor gap after %d", checkpoint.Cursor)
+	}
+	if len(page.Events) == 0 {
+		if page.NextCursor < checkpoint.Cursor {
+			return fmt.Errorf("codex proxy cursor moved backwards: %d -> %d", checkpoint.Cursor, page.NextCursor)
+		}
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, raw := range page.Events {
+			claim := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&entities.CodexProxyEventIdentity{
+				EventID:   raw.EventID,
+				CreatedAt: time.Now(),
+			})
+			if claim.Error != nil {
+				return fmt.Errorf("claim codex proxy event %q: %w", raw.EventID, claim.Error)
+			}
+			if claim.RowsAffected == 0 {
+				continue
+			}
+			event, err := raw.UsageEvent(time.Now())
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&event).Error; err != nil {
+				return fmt.Errorf("insert codex proxy usage event: %w", err)
+			}
+		}
+		next := page.NextCursor
+		if next < checkpoint.Cursor {
+			return fmt.Errorf("codex proxy cursor moved backwards: %d -> %d", checkpoint.Cursor, next)
+		}
+		row := entities.CodexProxyCheckpoint{Name: codexProxyCheckpointName, Cursor: next, UpdatedAt: time.Now()}
+		return tx.Save(&row).Error
+	})
+}
+
+func (r *CodexProxyRunner) LastError() error { r.mu.Lock(); defer r.mu.Unlock(); return r.lastErr }

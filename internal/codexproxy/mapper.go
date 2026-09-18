@@ -18,6 +18,9 @@ func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
 	var in, out, cached, reason, total int64
 	if u != nil {
 		in, out, cached, reason = u.InputTokens, u.OutputTokens, u.CachedTokens, u.ReasoningTokens
+		// Codex input/output are inclusive totals; cached is a subset of input
+		// and reasoning is a separate breakdown of output. Keep TotalTokens as
+		// input+output to match Keeper's CPA usage semantics and avoid double-counting.
 		total = in + out
 	}
 	if total == 0 {

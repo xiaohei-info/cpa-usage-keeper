@@ -55,6 +55,14 @@ type Config struct {
 	CPABaseURL string
 	// CPAManagementKey 是访问 CPA 管理数据的密钥。
 	CPAManagementKey string
+	// CodexProxyBaseURL 启用可选 Codex Proxy usage source；为空时完全禁用。
+	CodexProxyBaseURL string
+	// CodexProxyToken 是访问 Codex Proxy keeper integration endpoint 的令牌。
+	CodexProxyToken string
+	// CodexProxyPollInterval 控制 Codex Proxy 增量拉取间隔。
+	CodexProxyPollInterval time.Duration
+	// CodexProxyBatchSize 是每次 Codex Proxy 增量拉取的最大事件数。
+	CodexProxyBatchSize int
 	// CPARequestLogAccessEnabled 控制是否允许通过 Keeper 访问 CPA request log。
 	CPARequestLogAccessEnabled bool
 	// APIKeyViewerLocalRankingEnabled 控制 API Key Viewer 是否可只读查看本地排行。
@@ -252,6 +260,20 @@ func Load(options LoadOptions) (*Config, error) {
 	}
 
 	workDir := getString("WORK_DIR", DefaultWorkDir)
+	codexProxyPollInterval, err := getDuration("CODEX_PROXY_POLL_INTERVAL", 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	codexProxyBatchSize, err := getInt("CODEX_PROXY_BATCH_SIZE", 100)
+	if err != nil {
+		return nil, err
+	}
+	if codexProxyPollInterval <= 0 {
+		return nil, fmt.Errorf("CODEX_PROXY_POLL_INTERVAL must be positive")
+	}
+	if codexProxyBatchSize < 1 || codexProxyBatchSize > 500 {
+		return nil, fmt.Errorf("CODEX_PROXY_BATCH_SIZE must be between 1 and 500")
+	}
 
 	cfg := &Config{
 		AppHost:                         strings.TrimSpace(os.Getenv("APP_HOST")),
@@ -264,6 +286,10 @@ func Load(options LoadOptions) (*Config, error) {
 		TLSKeyFile:                      strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
 		CPABaseURL:                      strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
 		CPAManagementKey:                strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
+		CodexProxyBaseURL:               strings.TrimSpace(os.Getenv("CODEX_PROXY_BASE_URL")),
+		CodexProxyToken:                 strings.TrimSpace(os.Getenv("CODEX_PROXY_TOKEN")),
+		CodexProxyPollInterval:          codexProxyPollInterval,
+		CodexProxyBatchSize:             codexProxyBatchSize,
 		CPARequestLogAccessEnabled:      cpaRequestLogAccessEnabled,
 		APIKeyViewerLocalRankingEnabled: apiKeyViewerLocalRankingEnabled,
 		RedisQueueAddr:                  strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
@@ -292,11 +318,16 @@ func Load(options LoadOptions) (*Config, error) {
 	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
 		cfg.AppHost = appHost
 	}
-	if cfg.CPABaseURL == "" {
+	// Preserve the legacy, actionable errors for partial CPA configuration while
+	// allowing Codex-only mode when both CPA values are absent.
+	if cfg.CPABaseURL == "" && cfg.CPAManagementKey != "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")
 	}
-	if cfg.CPAManagementKey == "" {
+	if cfg.CPABaseURL != "" && cfg.CPAManagementKey == "" {
 		return nil, fmt.Errorf("CPA_MANAGEMENT_KEY is required")
+	}
+	if cfg.CPABaseURL == "" && cfg.CodexProxyBaseURL == "" {
+		return nil, fmt.Errorf("configure CPA_BASE_URL/CPA_MANAGEMENT_KEY or CODEX_PROXY_BASE_URL")
 	}
 	if cfg.AuthEnabled {
 		if cfg.LoginPassword == "" && authEnabledValue == "" {

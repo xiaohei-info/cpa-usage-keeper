@@ -7,6 +7,8 @@ func All() []any {
 		&UsageEventArchive{},
 		&ErrorEvent{},
 		&RedisUsageInbox{},
+		&CodexProxyCheckpoint{},
+		&CodexProxyEventIdentity{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},
 		&UsageIdentity{},

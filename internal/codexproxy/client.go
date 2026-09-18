@@ -38,7 +38,7 @@ type Event struct {
 }
 type Page struct {
 	Schema     string  `json:"schema"`
-	Cursor     int64   `json:"cursor"`
+	After      int64   `json:"after"`
 	NextCursor int64   `json:"next_cursor"`
 	HasMore    bool    `json:"has_more"`
 	CursorGap  bool    `json:"cursor_gap"`
@@ -81,8 +81,28 @@ func (c *Client) Pull(ctx context.Context, after int64, limit int) (Page, error)
 	if err = json.NewDecoder(resp.Body).Decode(&page); err != nil {
 		return Page{}, fmt.Errorf("decode codex proxy events: %w", err)
 	}
-	if page.Schema != "codex-proxy.keeper-events.v1" {
+	if page.Schema != "codex-proxy.keeper-event.v1" {
 		return Page{}, fmt.Errorf("unsupported codex proxy event schema %q", page.Schema)
+	}
+	if page.After != after {
+		return Page{}, fmt.Errorf("codex proxy page cursor mismatch: requested %d, got %d", after, page.After)
+	}
+	for _, event := range page.Events {
+		if event.Schema != "codex-proxy.keeper-event.v1" {
+			return Page{}, fmt.Errorf("unsupported event schema %q", event.Schema)
+		}
+		if event.EventType != "request.completed" {
+			return Page{}, fmt.Errorf("unsupported codex proxy event type %q", event.EventType)
+		}
+		if event.EventID == "" || event.RequestID == "" || event.AttemptID == "" {
+			return Page{}, fmt.Errorf("codex proxy event requires event_id, request_id, and attempt_id")
+		}
+	}
+	if len(page.Events) > 0 && page.NextCursor <= after {
+		return Page{}, fmt.Errorf("codex proxy page made no cursor progress: %d -> %d", after, page.NextCursor)
+	}
+	if page.NextCursor < after {
+		return Page{}, fmt.Errorf("codex proxy cursor moved backwards: %d -> %d", after, page.NextCursor)
 	}
 	return page, nil
 }

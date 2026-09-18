@@ -12,6 +12,7 @@ import (
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/codexproxy"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
@@ -61,6 +62,8 @@ type App struct {
 	RedisProcess Runner
 	// CPAErrors 是完全独立的 best-effort errors 订阅；停止或失败不影响 Usage 与 HTTP。
 	CPAErrors Runner
+	// CodexProxy is optional and nil unless CODEX_PROXY_BASE_URL is configured.
+	CodexProxy Runner
 	// UsageAggregation 是唯一串行调度三类派生聚合事务的后台 runner。
 	UsageAggregation  Runner
 	Ranking           Runner
@@ -198,6 +201,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 
+	cpaConfigured := cfg.CPABaseURL != "" && cfg.CPAManagementKey != ""
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
 		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
@@ -266,6 +270,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
 	redisErrorIngestRunner := poller.NewRedisErrorIngestRunner(redisErrorSubscribeSource, errorEventService)
+	var codexProxyRunner Runner
+	if cfg.CodexProxyBaseURL != "" {
+		codexProxyRunner = poller.NewCodexProxyRunner(db, codexproxy.NewClient(cfg.CodexProxyBaseURL, cfg.CodexProxyToken, cfg.RequestTimeout), cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
+	}
 	// backgroundPoller 继续组合远端 ingest 和本地 process 的状态展示。
 	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
 	var backupMaintenance *DatabaseBackupRunner
@@ -328,6 +336,19 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 
+	var cpaIngestRunner Runner = redisIngestRunner
+	var cpaProcessRunner Runner = redisProcessRunner
+	var cpaErrorsRunner Runner = redisErrorIngestRunner
+	var metadataRunner *MetadataSyncRunner = metadataSyncRunner
+	var quotaRunner QuotaRunner = quotaService
+	if !cpaConfigured {
+		cpaIngestRunner = nil
+		cpaProcessRunner = nil
+		cpaErrorsRunner = nil
+		metadataRunner = nil
+		quotaRunner = nil
+	}
+
 	return &App{
 		Config: &cfg,
 		// 对外保留单一 DB 入口，现有服务和后台任务不需要感知物理池。
@@ -336,16 +357,17 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		ReadDB: readDB,
 		Poller: backgroundPoller,
 		// Redis ingest/process 分成两个后台 runner，避免远端订阅拉取和本地 SQLite 处理互相等待。
-		RedisIngest:       redisIngestRunner,
-		RedisProcess:      redisProcessRunner,
-		CPAErrors:         redisErrorIngestRunner,
+		RedisIngest:       cpaIngestRunner,
+		RedisProcess:      cpaProcessRunner,
+		CPAErrors:         cpaErrorsRunner,
+		CodexProxy:        codexProxyRunner,
 		UsageAggregation:  usageAggregationRunner,
 		Ranking:           rankingRunner,
 		LocalRanking:      localRankingRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
-		MetadataSync:      metadataSyncRunner,
-		QuotaService:      quotaService,
-		QuotaAutoRefresh:  quotaService,
+		MetadataSync:      metadataRunner,
+		QuotaService:      quotaRunner,
+		QuotaAutoRefresh:  quotaRunner,
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
 		PricingCatalog:    pricingCatalog,
@@ -469,6 +491,13 @@ func (a *App) Run() error {
 		a.startBackgroundTask(func() {
 			if err := a.RedisProcess.Run(ctx); err != nil {
 				logrus.Errorf("redis process stopped: %v", err)
+			}
+		})
+	}
+	if a.CodexProxy != nil {
+		a.startBackgroundTask(func() {
+			if err := a.CodexProxy.Run(ctx); err != nil {
+				logrus.Errorf("Codex Proxy ingest stopped: %v", err)
 			}
 		})
 	}
