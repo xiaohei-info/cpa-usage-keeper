@@ -91,8 +91,11 @@ func (c *Client) Pull(ctx context.Context, after int64, limit int) (Page, error)
 		if event.Schema != "codex-proxy.keeper-event.v1" {
 			return Page{}, fmt.Errorf("unsupported event schema %q", event.Schema)
 		}
-		if event.EventType != "request.completed" {
+		if event.EventType != "request.completed" && event.EventType != "request.failed" {
 			return Page{}, fmt.Errorf("unsupported codex proxy event type %q", event.EventType)
+		}
+		if (event.EventType == "request.failed") != event.Failed {
+			return Page{}, fmt.Errorf("codex proxy event type %q is inconsistent with failed=%t", event.EventType, event.Failed)
 		}
 		if event.EventID == "" || event.RequestID == "" || event.AttemptID == "" {
 			return Page{}, fmt.Errorf("codex proxy event requires event_id, request_id, and attempt_id")

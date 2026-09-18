@@ -8,6 +8,12 @@ import (
 )
 
 func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
+	if e.EventType != "request.completed" && e.EventType != "request.failed" {
+		return entities.UsageEvent{}, fmt.Errorf("unsupported codex proxy event type %q", e.EventType)
+	}
+	if (e.EventType == "request.failed") != e.Failed {
+		return entities.UsageEvent{}, fmt.Errorf("codex proxy event type %q is inconsistent with failed=%t", e.EventType, e.Failed)
+	}
 	if e.EventID == "" || e.RequestID == "" {
 		return entities.UsageEvent{}, fmt.Errorf("event id and request id are required")
 	}
