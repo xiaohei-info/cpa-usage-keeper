@@ -49,10 +49,10 @@ func TestAccountsAndPullAndMap(t *testing.T) {
 	}
 }
 
-func TestPullLegacyEventStillRequiresStableIDs(t *testing.T) {
-	for _, missing := range []string{"", "event_id", "request_id"} {
+func TestPullRequiresProducerIDs(t *testing.T) {
+	for _, missing := range []string{"", "event_id", "request_id", "attempt_id"} {
 		t.Run("missing_"+missing, func(t *testing.T) {
-			event := map[string]any{"schema": "codex-proxy.keeper-event.v1", "event_type": "request.completed", "event_id": "legacy-event", "request_id": "legacy-request", "failed": false}
+			event := map[string]any{"schema": "codex-proxy.keeper-event.v1", "event_type": "request.completed", "event_id": "legacy-event", "request_id": "legacy-request", "attempt_id": "attempt-1", "failed": false}
 			delete(event, missing)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]any{"schema": "codex-proxy.keeper-event.v1", "after": 0, "next_cursor": 1, "events": []any{event}})
@@ -68,8 +68,8 @@ func TestPullLegacyEventStillRequiresStableIDs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if page.Events[0].AttemptID != "" {
-				t.Fatal("invented attempt ID")
+			if page.Events[0].AttemptID != "attempt-1" {
+				t.Fatal("changed producer attempt ID")
 			}
 			mapped, err := page.Events[0].UsageEvent(time.Now())
 			if err != nil || mapped.EventKey != "legacy-event" || mapped.Source != "codex-proxy" {

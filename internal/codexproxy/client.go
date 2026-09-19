@@ -151,8 +151,8 @@ func (c *Client) Pull(ctx context.Context, after int64, limit int) (Page, error)
 		if (event.EventType == "request.failed") != event.Failed {
 			return Page{}, fmt.Errorf("codex proxy event type %q is inconsistent with failed=%t", event.EventType, event.Failed)
 		}
-		if event.EventID == "" || event.RequestID == "" {
-			return Page{}, fmt.Errorf("codex proxy event requires event_id and request_id")
+		if event.EventID == "" || event.RequestID == "" || event.AttemptID == "" {
+			return Page{}, fmt.Errorf("codex proxy event requires event_id, request_id, and attempt_id")
 		}
 	}
 	if len(page.Events) > 0 && page.NextCursor <= after {

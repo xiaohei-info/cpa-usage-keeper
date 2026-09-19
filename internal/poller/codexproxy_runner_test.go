@@ -26,7 +26,7 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 		"has_more": false, "cursor_gap": false,
 		"events": []any{map[string]any{
 			"schema": "codex-proxy.keeper-event.v1", "event_id": "evt-1", "event_type": "request.completed",
-			"occurred_at": "2026-09-18T09:00:00Z", "request_id": "req-1", // Legacy v1 fixture has no attempt_id.
+			"occurred_at": "2026-09-18T09:00:00Z", "request_id": "req-1", "attempt_id": "attempt-1",
 			"account_entry_id": "acct-1", "provider": "codex", "endpoint": "/v1/responses",
 			"model": "gpt-5.6-sol", "status_code": status, "failed": false, "fallback": false,
 			"latency_ms": latency, "usage": map[string]any{"input_tokens": 10, "output_tokens": 2, "cached_tokens": 4, "reasoning_tokens": 1},
@@ -86,7 +86,7 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 	}
 	defer sqlDB.Close()
 	runner = NewCodexProxyRunner(db, codexproxy.NewClient(server.URL, "test-token", time.Second), time.Second, 10)
-	emptyAccounts = true // An empty metadata response must not delete the previously synced identity.
+	emptyAccounts = true // A successful empty snapshot follows normal identity replacement.
 	// Replay the same identity in a new page after reopening the persistent DB.
 	if err := runner.PullOnce(context.Background()); err != nil {
 		t.Fatal(err)

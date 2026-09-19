@@ -151,9 +151,8 @@ func (r *CodexProxyRunner) syncAccounts(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("pull codex proxy account metadata: %w", err)
 	}
-	// v1 provides no authoritative-empty marker; retain last-known identities.
 	if len(accounts) == 0 {
-		return nil
+		return fmt.Errorf("codex proxy returned an empty account snapshot")
 	}
 	identities := make([]entities.UsageIdentity, 0, len(accounts))
 	now := time.Now()
