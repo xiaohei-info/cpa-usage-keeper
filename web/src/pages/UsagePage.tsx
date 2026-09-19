@@ -1,3 +1,4 @@
+import { CodexProxyCredentialsSection } from '@/components/usage/credentials/CodexProxyCredentialsSection';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -2353,6 +2354,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onChange={setActiveCredentialProviderFilter}
                 />
                 <div className={styles.credentialsSections}>
+                  {credentialSectionVisibility.showAuthFiles && <CodexProxyCredentialsSection enabled={pageVisible} />}
                   {credentialSectionVisibility.showAuthFiles && (
                     <AuthFileCredentialsSection
                       rows={credentialsData.authFileRows}

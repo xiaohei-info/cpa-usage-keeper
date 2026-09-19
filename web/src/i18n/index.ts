@@ -20,6 +20,7 @@ const getInitialLanguage = (): SupportedLanguage => {
 const resources = {
   en: {
     translation: {
+      codex_accounts: {"read_only": "Read-only observations from Codex Proxy; request health and quota are independent.", "stale": "Latest sync failed. Showing last observed data, which may be stale.", "unknown": "Unknown", "status": "Account status", "unavailable": "Observed quota unavailable", "fetched": "Quota observed at", "verify": "Verification required", "yes": "Yes", "no": "No", "previous": "Previous", "next": "Next", "rate_limit": "Primary window", "secondary_rate_limit": "Secondary window", "code_review_rate_limit": "Code review window", "used": "Used", "remaining": "Remaining", "window": "Window (seconds)", "reset": "Resets at"},
       common: {
         loading: 'Loading...',
         save: 'Save',
@@ -931,6 +932,7 @@ const resources = {
   },
   zh: {
     translation: {
+      codex_accounts: {"read_only": "Codex Proxy 的只读观测；请求健康与配额独立显示。", "stale": "最新同步失败，以下为可能过期的上次观测数据。", "unknown": "未知", "status": "账号状态", "unavailable": "暂无配额观测", "fetched": "配额观测时间", "verify": "需要验证", "yes": "是", "no": "否", "previous": "上一页", "next": "下一页", "rate_limit": "主窗口", "secondary_rate_limit": "次窗口", "code_review_rate_limit": "代码审查窗口", "used": "已用", "remaining": "剩余", "window": "窗口（秒）", "reset": "重置时间"},
       common: {
         loading: '加载中...',
         save: '保存',
@@ -1842,6 +1844,7 @@ const resources = {
   },
   'zh-TW': {
     translation: {
+      codex_accounts: {"read_only": "Codex Proxy 的只读观测；请求健康与配额独立显示。", "stale": "最新同步失败，以下为可能过期的上次观测数据。", "unknown": "未知", "status": "账号状态", "unavailable": "暂无配额观测", "fetched": "配额观测时间", "verify": "需要验证", "yes": "是", "no": "否", "previous": "上一页", "next": "下一页", "rate_limit": "主窗口", "secondary_rate_limit": "次窗口", "code_review_rate_limit": "代码审查窗口", "used": "已用", "remaining": "剩余", "window": "窗口（秒）", "reset": "重置时间"},
       common: {
         loading: '載入中...',
         save: '儲存',
