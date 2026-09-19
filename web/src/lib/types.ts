@@ -390,7 +390,7 @@ export interface UsageEventSourceFilterOptionsResponse {
   sources: UsageSourceFilterOption[]
 }
 
-export type UsageIdentityAuthType = 1 | 2
+export type UsageIdentityAuthType = 1 | 2 | 3
 
 export interface UsageCredentialHealthBucket {
   start_time: string
@@ -431,6 +431,27 @@ export interface UsageIdentityPeriodStats {
   total_tokens: number
 }
 
+export interface CodexObservedQuotaWindow {
+  used_percent: number | null
+  remaining_percent: number | null
+  reset_at: number | null
+  limit_window_seconds: number | null
+  allowed: boolean | null
+  limit_reached: boolean | null
+}
+export interface CodexQuotaSnapshot {
+  status: string
+  stale: boolean
+  quota_fetched_at: string | null
+  quota_verify_required: boolean | null
+  quota: {
+    plan_type: string
+    rate_limit: CodexObservedQuotaWindow | null
+    secondary_rate_limit: CodexObservedQuotaWindow | null
+    code_review_rate_limit: CodexObservedQuotaWindow | null
+  } | null
+}
+
 export interface UsageIdentity {
   id: string
   name: string
@@ -465,6 +486,7 @@ export interface UsageIdentity {
   stats_reset_at?: string
   period_stats?: UsageIdentityPeriodStats
   credential_health?: UsageCredentialHealth
+  codex_quota?: CodexQuotaSnapshot
   is_deleted: boolean
   created_at: string
   updated_at: string
