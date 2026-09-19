@@ -258,15 +258,17 @@ func parseUsageEventsAuthType(rawValue string) (string, error) {
 	}
 	authType, err := strconv.Atoi(value)
 	if err != nil {
-		return "", fmt.Errorf("auth_type must be 1 or 2")
+		return "", fmt.Errorf("auth_type must be 1, 2, or 3")
 	}
 	switch entities.UsageIdentityAuthType(authType) {
 	case entities.UsageIdentityAuthTypeAuthFile:
 		return "oauth", nil
 	case entities.UsageIdentityAuthTypeAIProvider:
 		return "apikey", nil
+	case entities.UsageIdentityAuthTypeCodexProxy:
+		return "oauth", nil
 	default:
-		return "", fmt.Errorf("auth_type must be 1 or 2")
+		return "", fmt.Errorf("auth_type must be 1, 2, or 3")
 	}
 }
 

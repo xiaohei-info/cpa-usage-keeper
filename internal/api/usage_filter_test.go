@@ -275,7 +275,7 @@ func TestParseUsageFilterQueryAcceptsLatestIdentityCursorWithoutRange(t *testing
 }
 
 func TestParseUsageFilterQueryRejectsInvalidIdentityAuthType(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/v1/usage/events?cursor_mode=true&source=shared-auth&auth_type=3", nil)
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?cursor_mode=true&source=shared-auth&auth_type=4", nil)
 
 	if _, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)); err == nil {
 		t.Fatal("expected invalid auth_type error")

@@ -906,7 +906,7 @@ func buildUsageSourceFilterOptions(identities []entities.UsageIdentity) []usageS
 
 func usageSourceFilterOptionFromIdentity(identity entities.UsageIdentity) (usageSourceFilterOption, bool) {
 	switch identity.AuthType {
-	case entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider:
+	case entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider, entities.UsageIdentityAuthTypeCodexProxy:
 		value := strings.TrimSpace(identity.Identity)
 		if value == "" {
 			return usageSourceFilterOption{}, false

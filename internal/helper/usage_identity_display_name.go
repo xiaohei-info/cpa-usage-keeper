@@ -14,6 +14,12 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 	}
 	name := strings.TrimSpace(item.Name)
 	provider := strings.TrimSpace(item.Provider)
+	if item.AuthType == entities.UsageIdentityAuthTypeCodexProxy {
+		if name != "" && provider != "" {
+			return name + " (" + provider + ")"
+		}
+		return firstNonEmptyString(name, provider, item.Identity)
+	}
 	if item.AuthType != entities.UsageIdentityAuthTypeAIProvider {
 		if name != "" {
 			return name

@@ -30,6 +30,19 @@ func TestResolverPrefersModelThenFallsBackToAlias(t *testing.T) {
 	}
 }
 
+func TestResolverMarksCodexProxyCostUnavailable(t *testing.T) {
+	t.Parallel()
+
+	resolver := compileResolver(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("gpt-6-astra", 10)})
+	result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{
+		APIGroupKey: "codex-proxy",
+		Model:       "gpt-6-astra",
+	}, helper.UsageTokenCostInput{InputTokens: 1_000_000, OutputTokens: 100_000}))
+	if result.Available || result.Cost.TotalCostUSD != 0 {
+		t.Fatalf("expected Codex Proxy cost to be unavailable, got %+v", result)
+	}
+}
+
 func TestResolverPreservesMissingPriceAvailabilityContract(t *testing.T) {
 	t.Parallel()
 

@@ -260,8 +260,8 @@ func parseUsageIdentitiesPageRequest(c *gin.Context) (service.ListUsageIdentitie
 	}
 	if rawAuthType := c.Query("auth_type"); rawAuthType != "" {
 		value, err := strconv.Atoi(rawAuthType)
-		if err != nil || (value != int(entities.UsageIdentityAuthTypeAuthFile) && value != int(entities.UsageIdentityAuthTypeAIProvider)) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_type must be 1 or 2"})
+		if err != nil || (value != int(entities.UsageIdentityAuthTypeAuthFile) && value != int(entities.UsageIdentityAuthTypeAIProvider) && value != int(entities.UsageIdentityAuthTypeCodexProxy)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_type must be 1, 2, or 3"})
 			return service.ListUsageIdentitiesRequest{}, false
 		}
 		authType := entities.UsageIdentityAuthType(value)

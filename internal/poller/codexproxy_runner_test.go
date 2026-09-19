@@ -35,6 +35,11 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("missing auth")
 		}
+		if r.URL.Path == "/admin/integration/keeper/accounts" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","accounts":[{"account_entry_id":"acct-1","email":"user@example.com","status":"active"}]}`))
+			return
+		}
 		if r.URL.Path != "/admin/integration/keeper/events" || r.URL.Query().Get("limit") != "10" {
 			t.Errorf("unexpected endpoint: %s", r.URL)
 		}
@@ -51,7 +56,7 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&entities.UsageEvent{}, &entities.CodexProxyCheckpoint{}, &entities.CodexProxyEventIdentity{}); err != nil {
+	if err := db.AutoMigrate(&entities.UsageEvent{}, &entities.UsageIdentity{}, &entities.CodexProxyCheckpoint{}, &entities.CodexProxyEventIdentity{}); err != nil {
 		t.Fatal(err)
 	}
 	runner := NewCodexProxyRunner(db, codexproxy.NewClient(server.URL, "test-token", time.Second), time.Second, 10)
@@ -96,6 +101,13 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 	}
 	if len(events) != 1 {
 		t.Fatalf("expected one usage event after replay, got %d", len(events))
+	}
+	var identity entities.UsageIdentity
+	if err := db.Where("auth_type = ? AND identity = ?", entities.UsageIdentityAuthTypeCodexProxy, "acct-1").First(&identity).Error; err != nil {
+		t.Fatal(err)
+	}
+	if identity.IsDeleted || identity.Name != "user@example.com" {
+		t.Fatalf("unexpected synced identity: %+v", identity)
 	}
 	if events[0].AuthIndex != "acct-1" || events[0].TotalTokens != 12 || events[0].CachedTokens != 4 || events[0].Failed {
 		t.Fatalf("unexpected mapped event: %+v", events[0])

@@ -117,6 +117,7 @@ type AnalysisRecord struct {
 	ModelComposition      []AnalysisCompositionRecord
 	AuthFilesComposition  []AnalysisCompositionRecord
 	AIProviderComposition []AnalysisCompositionRecord
+	CodexProxyComposition []AnalysisCompositionRecord
 	Heatmap               []AnalysisHeatmapRecord
 	CostBreakdown         AnalysisCostBreakdownRecord
 	ModelEfficiency       []AnalysisModelEfficiencyRecord

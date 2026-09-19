@@ -44,6 +44,37 @@ type Page struct {
 	CursorGap  bool    `json:"cursor_gap"`
 	Events     []Event `json:"events"`
 }
+
+const AccountMetadataSchema = "codex-proxy.keeper-account-metadata.v1"
+
+type AccountMetadata struct {
+	AccountEntryID string          `json:"account_entry_id"`
+	Email          string          `json:"email"`
+	Label          string          `json:"label"`
+	AccountID      string          `json:"account_id"`
+	OrganizationID string          `json:"organization_id"`
+	UserID         string          `json:"user_id"`
+	PlanType       string          `json:"plan_type"`
+	Status         string          `json:"status"`
+	AddedAt        time.Time       `json:"added_at"`
+	ExpiresAt      *time.Time      `json:"expires_at"`
+	Usage          AccountUsage    `json:"usage"`
+	CachedQuota    json.RawMessage `json:"cached_quota"`
+	QuotaFetchedAt *time.Time      `json:"quota_fetched_at"`
+	VerifyRequired bool            `json:"quota_verify_required"`
+}
+
+type AccountUsage struct {
+	RequestCount int64 `json:"request_count"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	CachedTokens int64 `json:"cached_tokens"`
+}
+
+type AccountsPage struct {
+	Schema   string            `json:"schema"`
+	Accounts []AccountMetadata `json:"accounts"`
+}
 type Client struct {
 	baseURL, token string
 	httpClient     *http.Client
@@ -55,6 +86,40 @@ func NewClient(baseURL, token string, timeout time.Duration) *Client {
 	}
 	return &Client{baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), token: strings.TrimSpace(token), httpClient: &http.Client{Timeout: timeout}}
 }
+func (c *Client) Accounts(ctx context.Context) ([]AccountMetadata, error) {
+	if c == nil || c.baseURL == "" {
+		return nil, fmt.Errorf("codex proxy base URL is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/admin/integration/keeper/accounts", nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("codex proxy accounts returned status %d", resp.StatusCode)
+	}
+	var page AccountsPage
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return nil, fmt.Errorf("decode codex proxy accounts: %w", err)
+	}
+	if page.Schema != AccountMetadataSchema {
+		return nil, fmt.Errorf("unsupported codex proxy account schema %q", page.Schema)
+	}
+	for _, account := range page.Accounts {
+		if strings.TrimSpace(account.AccountEntryID) == "" {
+			return nil, fmt.Errorf("codex proxy account requires account_entry_id")
+		}
+	}
+	return page.Accounts, nil
+}
+
 func (c *Client) Pull(ctx context.Context, after int64, limit int) (Page, error) {
 	if c == nil || c.baseURL == "" {
 		return Page{}, fmt.Errorf("codex proxy base URL is required")

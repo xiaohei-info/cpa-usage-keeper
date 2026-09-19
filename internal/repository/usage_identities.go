@@ -34,9 +34,9 @@ func hasPendingUsageIdentityAggregation(db *gorm.DB) (bool, error) {
 		JOIN usage_events AS event
 		  ON event.id > identity.last_aggregated_usage_event_id
 		 AND event.auth_index = identity.identity
-		 AND ((identity.auth_type = ? AND event.auth_type = ?) OR (identity.auth_type = ? AND event.auth_type = ?))
+		 AND ((identity.auth_type = ? AND event.auth_type = ?) OR (identity.auth_type = ? AND event.auth_type = ?) OR (identity.auth_type = ? AND event.auth_type = ?))
 		LIMIT 1
-	)`, entities.UsageIdentityAuthTypeAuthFile, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey").Scan(&pending).Error
+	)`, entities.UsageIdentityAuthTypeAuthFile, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey", entities.UsageIdentityAuthTypeCodexProxy, "oauth").Scan(&pending).Error
 	if err != nil {
 		return false, err
 	}
@@ -601,6 +601,8 @@ func usageIdentityEventsQuery(query *gorm.DB, identity entities.UsageIdentity) (
 		eventAuthType = "oauth"
 	case entities.UsageIdentityAuthTypeAIProvider:
 		eventAuthType = "apikey"
+	case entities.UsageIdentityAuthTypeCodexProxy:
+		eventAuthType = "oauth"
 	default:
 		return query, false
 	}

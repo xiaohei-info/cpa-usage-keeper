@@ -8,6 +8,7 @@ type UsageIdentityAuthType int
 const (
 	UsageIdentityAuthTypeAuthFile   UsageIdentityAuthType = 1
 	UsageIdentityAuthTypeAIProvider UsageIdentityAuthType = 2
+	UsageIdentityAuthTypeCodexProxy UsageIdentityAuthType = 3
 )
 
 // UsageIdentity 是从 CPA auth_files 和 provider config 同步出的 usage source 身份实体。

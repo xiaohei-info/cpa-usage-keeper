@@ -24,14 +24,15 @@ type usageOverviewComparisonItem struct {
 }
 
 type usageOverviewComparisons struct {
-	Models      []usageOverviewComparisonItem `json:"models"`
-	APIKeys     []usageOverviewComparisonItem `json:"api_keys,omitempty"`
-	AuthFiles   []usageOverviewComparisonItem `json:"auth_files,omitempty"`
-	AIProviders []usageOverviewComparisonItem `json:"ai_providers,omitempty"`
+	Models             []usageOverviewComparisonItem `json:"models"`
+	APIKeys            []usageOverviewComparisonItem `json:"api_keys,omitempty"`
+	AuthFiles          []usageOverviewComparisonItem `json:"auth_files,omitempty"`
+	AIProviders        []usageOverviewComparisonItem `json:"ai_providers,omitempty"`
+	CodexProxyAccounts []usageOverviewComparisonItem `json:"codex_proxy_accounts,omitempty"`
 }
 
 func buildUsageOverviewComparisons(overview *servicedto.UsageOverviewSnapshot, infos map[string]analysisAPIKeyInfo) *usageOverviewComparisons {
-	result := &usageOverviewComparisons{Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, AuthFiles: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}}
+	result := &usageOverviewComparisons{Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, AuthFiles: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}, CodexProxyAccounts: []usageOverviewComparisonItem{}}
 	if overview == nil || overview.Comparisons == nil {
 		return result
 	}
@@ -39,6 +40,7 @@ func buildUsageOverviewComparisons(overview *servicedto.UsageOverviewSnapshot, i
 	result.APIKeys = mapUsageOverviewComparison(overview.Comparisons.APIKeys, infos, true)
 	result.AuthFiles = mapUsageOverviewComparison(overview.Comparisons.AuthFiles, nil, false)
 	result.AIProviders = mapUsageOverviewComparison(overview.Comparisons.AIProviders, nil, false)
+	result.CodexProxyAccounts = mapUsageOverviewComparison(overview.Comparisons.CodexProxyAccounts, nil, false)
 	return result
 }
 

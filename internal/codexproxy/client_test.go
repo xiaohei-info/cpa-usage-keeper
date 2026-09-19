@@ -10,8 +10,13 @@ import (
 	"cpa-usage-keeper/internal/service/tokenprocessor"
 )
 
-func TestPullAndMap(t *testing.T) {
+func TestAccountsAndPullAndMap(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/admin/integration/keeper/accounts" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","accounts":[{"account_entry_id":"acct","email":"user@example.com","label":"Work","account_id":"account-1","plan_type":"pro","status":"active","usage":{"request_count":3,"input_tokens":10,"output_tokens":2,"cached_tokens":8}}]}`))
+			return
+		}
 		if r.URL.Query().Get("after") != "7" {
 			t.Fatalf("after=%s", r.URL.Query().Get("after"))
 		}
@@ -22,7 +27,12 @@ func TestPullAndMap(t *testing.T) {
 		w.Write([]byte(`{"schema":"codex-proxy.keeper-event.v1","after":7,"next_cursor":8,"has_more":false,"cursor_gap":false,"events":[{"schema":"codex-proxy.keeper-event.v1","event_id":"e1","event_type":"request.completed","occurred_at":"2026-01-01T00:00:00Z","request_id":"r1","attempt_id":"a1","account_entry_id":"acct","provider":"codex","endpoint":"/v1/responses","model":"m","status_code":200,"failed":false,"fallback":false,"latency_ms":12,"usage":{"input_tokens":10,"output_tokens":2,"cached_tokens":8,"reasoning_tokens":1}}]}`))
 	}))
 	defer srv.Close()
-	p, err := NewClient(srv.URL, "x", time.Second).Pull(context.Background(), 7, 10)
+	client := NewClient(srv.URL, "x", time.Second)
+	accounts, err := client.Accounts(context.Background())
+	if err != nil || len(accounts) != 1 || accounts[0].AccountEntryID != "acct" || accounts[0].Email != "user@example.com" {
+		t.Fatalf("accounts=%+v err=%v", accounts, err)
+	}
+	p, err := client.Pull(context.Background(), 7, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +43,7 @@ func TestPullAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.AuthIndex != "acct" || u.ExecutorType != tokenprocessor.CodexExecutor || u.TotalTokens != 12 || u.CachedTokens != 8 || u.ReasoningTokens != 1 || u.Failed {
+	if u.AuthIndex != "acct" || u.APIGroupKey != "codex-proxy" || u.ExecutorType != tokenprocessor.CodexExecutor || u.TotalTokens != 12 || u.CachedTokens != 8 || u.ReasoningTokens != 1 || u.Failed {
 		t.Fatalf("usage=%+v", u)
 	}
 }

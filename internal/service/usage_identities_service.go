@@ -192,6 +192,8 @@ func usageIdentityEventAuthType(authType entities.UsageIdentityAuthType) (string
 		return "oauth", true
 	case entities.UsageIdentityAuthTypeAIProvider:
 		return "apikey", true
+	case entities.UsageIdentityAuthTypeCodexProxy:
+		return "oauth", true
 	default:
 		return "", false
 	}

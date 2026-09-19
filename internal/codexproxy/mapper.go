@@ -2,6 +2,7 @@ package codexproxy
 
 import (
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service/tokenprocessor"
 	"fmt"
@@ -34,7 +35,7 @@ func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
 	if total == 0 {
 		total = in + out + reason
 	}
-	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: e.Provider, Provider: e.Provider, Endpoint: e.Endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total}, nil
+	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: pricing.CodexProxyAPIGroupKey, Provider: e.Provider, Endpoint: e.Endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total}, nil
 }
 func boolPtr(v bool) *bool { return &v }
 func valueInt64(v *int64) int64 {
@@ -42,4 +43,40 @@ func valueInt64(v *int64) int64 {
 		return 0
 	}
 	return *v
+}
+
+func AccountUsageIdentity(account AccountMetadata, now time.Time) entities.UsageIdentity {
+	name := account.Email
+	if name == "" {
+		name = account.Label
+	}
+	if name == "" {
+		name = account.AccountEntryID
+	}
+	var alias *string
+	if account.Label != "" {
+		value := account.Label
+		alias = &value
+	}
+	status := account.Status
+	disabled := status != "" && status != "active"
+	var planType *string
+	if account.PlanType != "" {
+		value := account.PlanType
+		planType = &value
+	}
+	return entities.UsageIdentity{
+		Name:           name,
+		Alias:          alias,
+		AuthType:       entities.UsageIdentityAuthTypeCodexProxy,
+		AuthTypeName:   "codex-proxy",
+		Identity:       account.AccountEntryID,
+		Type:           "codex-proxy-account",
+		Provider:       "Codex Proxy",
+		FileName:       nil,
+		PlanType:       planType,
+		Disabled:       &disabled,
+		ActiveUntil:    account.ExpiresAt,
+		StatsUpdatedAt: &now,
+	}
 }

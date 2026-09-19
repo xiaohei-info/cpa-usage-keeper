@@ -8,11 +8,15 @@ import (
 
 	"cpa-usage-keeper/internal/codexproxy"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-const codexProxyCheckpointName = "codex-proxy:keeper-events"
+const (
+	codexProxyCheckpointName      = "codex-proxy:keeper-events"
+	codexProxyAccountSyncInterval = time.Minute
+)
 
 // CodexProxyRunner pulls durable, cursor-addressed events and commits usage plus
 // the cursor in one transaction. Replaying a page is safe because event IDs are
@@ -22,12 +26,14 @@ type CodexProxyRunner struct {
 	recent interface {
 		TryAppend([]entities.UsageEvent) bool
 	}
-	notifier interface{ NotifyUsageEventsCommitted([]entities.UsageEvent) }
-	client   *codexproxy.Client
-	interval time.Duration
-	limit    int
-	mu       sync.Mutex
-	lastErr  error
+	notifier        interface{ NotifyUsageEventsCommitted([]entities.UsageEvent) }
+	client          *codexproxy.Client
+	interval        time.Duration
+	limit           int
+	mu              sync.Mutex
+	lastErr         error
+	accountSyncMu   sync.Mutex
+	lastAccountSync time.Time
 }
 
 func NewCodexProxyRunner(db *gorm.DB, client *codexproxy.Client, interval time.Duration, limit int) *CodexProxyRunner {
@@ -65,6 +71,15 @@ func (r *CodexProxyRunner) SetPostCommitHooks(recent interface {
 }
 
 func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
+	// Account metadata is best-effort and independent from event ingestion. A
+	// stale account list must never block usage events, so sync it before the
+	// page pull and keep its error separate from the durable cursor transaction.
+	if err := r.syncAccounts(ctx); err != nil {
+		r.mu.Lock()
+		r.lastErr = err
+		r.mu.Unlock()
+	}
+
 	var checkpoint entities.CodexProxyCheckpoint
 	if err := r.db.WithContext(ctx).Where("name = ?", codexProxyCheckpointName).First(&checkpoint).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return err
@@ -121,6 +136,32 @@ func (r *CodexProxyRunner) PullOnce(ctx context.Context) error {
 			r.notifier.NotifyUsageEventsCommitted(committed)
 		}
 	}
+	return nil
+}
+
+func (r *CodexProxyRunner) syncAccounts(ctx context.Context) error {
+	r.accountSyncMu.Lock()
+	if !r.lastAccountSync.IsZero() && time.Since(r.lastAccountSync) < codexProxyAccountSyncInterval {
+		r.accountSyncMu.Unlock()
+		return nil
+	}
+	r.accountSyncMu.Unlock()
+
+	accounts, err := r.client.Accounts(ctx)
+	if err != nil {
+		return fmt.Errorf("pull codex proxy account metadata: %w", err)
+	}
+	identities := make([]entities.UsageIdentity, 0, len(accounts))
+	now := time.Now()
+	for _, account := range accounts {
+		identities = append(identities, codexproxy.AccountUsageIdentity(account, now))
+	}
+	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, r.db, identities, entities.UsageIdentityAuthTypeCodexProxy, now); err != nil {
+		return fmt.Errorf("sync codex proxy account identities: %w", err)
+	}
+	r.accountSyncMu.Lock()
+	r.lastAccountSync = now
+	r.accountSyncMu.Unlock()
 	return nil
 }
 

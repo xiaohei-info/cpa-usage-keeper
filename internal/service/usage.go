@@ -585,6 +585,10 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	for _, item := range record.AIProviderComposition {
 		aiProviders = append(aiProviders, mapAnalysisCompositionRecord(item))
 	}
+	codexProxy := make([]servicedto.AnalysisCompositionItem, 0, len(record.CodexProxyComposition))
+	for _, item := range record.CodexProxyComposition {
+		codexProxy = append(codexProxy, mapAnalysisCompositionRecord(item))
+	}
 	heatmap := make([]servicedto.AnalysisHeatmapCell, 0, len(record.Heatmap))
 	for _, cell := range record.Heatmap {
 		heatmap = append(heatmap, servicedto.AnalysisHeatmapCell{
@@ -629,6 +633,7 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		ModelComposition:      models,
 		AuthFilesComposition:  authFiles,
 		AIProviderComposition: aiProviders,
+		CodexProxyComposition: codexProxy,
 		Heatmap:               heatmap,
 		CostBreakdown: servicedto.AnalysisCostBreakdown{
 			UncachedInputCostUSD: record.CostBreakdown.UncachedInputCostUSD,
