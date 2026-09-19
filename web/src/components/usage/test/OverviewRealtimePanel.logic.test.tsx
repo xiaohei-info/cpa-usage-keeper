@@ -73,7 +73,6 @@ const realtime: OverviewRealtimeBlock = {
     api_keys: [{ key: '1', label: 'Team Key', tokens: 180, requests: 3, share: 72 }],
     auth_files: [{ key: 'auth-1', label: 'Claude Account', tokens: 45, requests: 1, share: 18 }],
     ai_providers: [{ key: 'provider-1', label: 'OpenAI Provider', tokens: 25, requests: 1, share: 10 }],
-    codex_proxy_accounts: [{ key: 'codex-1', label: 'user@example.com (Codex Proxy)', tokens: 30, requests: 1, share: 12 }],
   },
   request_level: [
     { bucket: '2026-06-09T11:55:00Z', requests_per_minute: 2, requests: 1 },
@@ -132,7 +131,6 @@ describe('OverviewRealtimePanel', () => {
     expect(html).not.toMatch(/>5m<\/button>/);
     expect(html).toContain('usage_stats.overview_realtime_dimension_api_keys');
     expect(html).toContain('usage_stats.overview_realtime_dimension_auth_files');
-    expect(html).toContain('usage_stats.overview_realtime_dimension_codex_proxy_accounts');
     expect(html).toContain('gpt-5');
     expect(chartCapture.lineCalls).toHaveLength(1);
     expect(chartCapture.chartCalls).toHaveLength(3);
@@ -210,24 +208,6 @@ describe('OverviewRealtimePanel', () => {
       'usage_stats.overview_realtime_latency_distribution',
     ]);
     expect(chartCapture.chartCalls[2].data.datasets[3].data).toEqual([25, 50]);
-  });
-
-  it('renders Codex Proxy account usage when that dimension is selected', () => {
-    const html = renderToStaticMarkup(
-      <OverviewRealtimePanel
-        realtime={realtime}
-        loading={false}
-        window="15m"
-        onWindowChange={() => {}}
-        isDark={false}
-        isMobile={false}
-        timezone="UTC"
-        visibleDimensions={['codex_proxy_accounts']}
-      />
-    );
-
-    expect(html).toContain('usage_stats.overview_realtime_dimension_codex_proxy_accounts');
-    expect(html).toContain('user@example.com (Codex Proxy)');
   });
 
   it('aligns throughput series by bucket when one response series has a missing point', () => {

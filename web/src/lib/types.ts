@@ -198,7 +198,6 @@ export interface RealtimeCurrentUsage {
   api_keys: RealtimeUsageTopItem[]
   auth_files: RealtimeUsageTopItem[]
   ai_providers: RealtimeUsageTopItem[]
-  codex_proxy_accounts?: RealtimeUsageTopItem[]
 }
 
 export interface RealtimeRequestLevelPoint {
@@ -268,7 +267,6 @@ export interface UsageOverviewComparisons {
   api_keys?: UsageComparisonItem[]
   auth_files?: UsageComparisonItem[]
   ai_providers?: UsageComparisonItem[]
-  codex_proxy_accounts?: UsageComparisonItem[]
 }
 
 export interface UsageOverviewResponse {
@@ -392,7 +390,7 @@ export interface UsageEventSourceFilterOptionsResponse {
   sources: UsageSourceFilterOption[]
 }
 
-export type UsageIdentityAuthType = 1 | 2 | 3
+export type UsageIdentityAuthType = 1 | 2
 
 export interface UsageCredentialHealthBucket {
   start_time: string
@@ -822,7 +820,6 @@ export interface AnalysisResponse {
   model_composition: AnalysisCompositionItem[]
   auth_files_composition: AnalysisCompositionItem[]
   ai_provider_composition: AnalysisCompositionItem[]
-  codex_proxy_composition?: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
   cost_breakdown: AnalysisCostBreakdown
   model_efficiency: AnalysisModelEfficiencyItem[]

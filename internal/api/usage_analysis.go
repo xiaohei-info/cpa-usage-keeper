@@ -24,7 +24,6 @@ type analysisResponse struct {
 	ModelComposition      []analysisCompositionItem `json:"model_composition"`
 	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
 	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
-	CodexProxyComposition []analysisCompositionItem `json:"codex_proxy_composition"`
 	Heatmap               analysisHeatmap           `json:"heatmap"`
 	CostBreakdown         analysisCostBreakdown     `json:"cost_breakdown"`
 	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
@@ -229,7 +228,6 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 		// 来源身份属于管理员视图；Viewer JSON 在服务端直接清空，避免仅靠 UI 隐藏。
 		payload.AuthFilesComposition = []analysisCompositionItem{}
 		payload.AIProviderComposition = []analysisCompositionItem{}
-		payload.CodexProxyComposition = []analysisCompositionItem{}
 		c.JSON(http.StatusOK, payload)
 	})
 
@@ -335,7 +333,6 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 		ModelComposition:      modelComposition,
 		AuthFilesComposition:  authFilesComposition,
 		AIProviderComposition: aiProviderComposition,
-		CodexProxyComposition: buildAnalysisCompositionPayload(snapshot.CodexProxyComposition, nil),
 		Heatmap:               buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
 		CostBreakdown: analysisCostBreakdown{
 			UncachedInputCostUSD: snapshot.CostBreakdown.UncachedInputCostUSD,

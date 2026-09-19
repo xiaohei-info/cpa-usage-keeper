@@ -128,11 +128,10 @@ type usageOverviewResponseDistribution struct {
 }
 
 type usageOverviewRealtimeCurrentUsage struct {
-	Models             []usageOverviewRealtimeUsageTopItem `json:"models"`
-	APIKeys            []usageOverviewRealtimeUsageTopItem `json:"api_keys"`
-	AuthFiles          []usageOverviewRealtimeUsageTopItem `json:"auth_files"`
-	AIProviders        []usageOverviewRealtimeUsageTopItem `json:"ai_providers"`
-	CodexProxyAccounts []usageOverviewRealtimeUsageTopItem `json:"codex_proxy_accounts"`
+	Models      []usageOverviewRealtimeUsageTopItem `json:"models"`
+	APIKeys     []usageOverviewRealtimeUsageTopItem `json:"api_keys"`
+	AuthFiles   []usageOverviewRealtimeUsageTopItem `json:"auth_files"`
+	AIProviders []usageOverviewRealtimeUsageTopItem `json:"ai_providers"`
 }
 
 type keyUsageOverviewRealtimeCurrentUsage struct {
@@ -273,7 +272,6 @@ func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service
 	if keyViewer {
 		comparisons.AuthFiles = nil
 		comparisons.AIProviders = nil
-		comparisons.CodexProxyAccounts = nil
 	}
 	c.JSON(http.StatusOK, comparisons)
 }
@@ -423,11 +421,10 @@ func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
 		ResponseLevel:        base.ResponseLevel,
 		ResponseDistribution: base.ResponseDistribution,
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
-			Models:             []usageOverviewRealtimeUsageTopItem{},
-			APIKeys:            []usageOverviewRealtimeUsageTopItem{},
-			AuthFiles:          []usageOverviewRealtimeUsageTopItem{},
-			AIProviders:        []usageOverviewRealtimeUsageTopItem{},
-			CodexProxyAccounts: []usageOverviewRealtimeUsageTopItem{},
+			Models:      []usageOverviewRealtimeUsageTopItem{},
+			APIKeys:     []usageOverviewRealtimeUsageTopItem{},
+			AuthFiles:   []usageOverviewRealtimeUsageTopItem{},
+			AIProviders: []usageOverviewRealtimeUsageTopItem{},
 		},
 		RequestLevel: base.RequestLevel,
 		CacheLevel:   base.CacheLevel,
@@ -513,11 +510,10 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
 		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
-			Models:             mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
-			APIKeys:            mapUsageOverviewRealtimeAPIKeyTopItems(realtime.CurrentUsage.APIKeys, apiKeyInfos),
-			AuthFiles:          mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AuthFiles, false),
-			AIProviders:        mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AIProviders, false),
-			CodexProxyAccounts: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.CodexProxyAccounts, false),
+			Models:      mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
+			APIKeys:     mapUsageOverviewRealtimeAPIKeyTopItems(realtime.CurrentUsage.APIKeys, apiKeyInfos),
+			AuthFiles:   mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AuthFiles, false),
+			AIProviders: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AIProviders, false),
 		},
 		RequestLevel: make([]usageOverviewRequestLevelPoint, 0, len(realtime.RequestLevel)),
 		CacheLevel:   make([]usageOverviewCacheLevelPoint, 0, len(realtime.CacheLevel)),

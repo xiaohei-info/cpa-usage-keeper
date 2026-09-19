@@ -107,7 +107,6 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 	provider := &usageFilterStub{
 		realtime: &servicedto.UsageOverviewRealtime{
 			Window:        "60m",
-			CurrentUsage:  servicedto.RealtimeCurrentUsage{CodexProxyAccounts: []servicedto.RealtimeUsageTopItem{{Key: "codex-private", Label: "Private Codex Account"}}},
 			BucketSeconds: 120,
 			RequestLevel: []servicedto.RealtimeRequestLevelPoint{{
 				Bucket:            "2026-04-22T11:00:00Z",
@@ -143,7 +142,7 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 		t.Fatalf("expected key overview realtime current_usage object, got %s", realtimeResp.Body.String())
 	}
 	assertAllowedJSONKeys(t, currentUsage, "key overview realtime current_usage", realtimeResp.Body.String(), "models")
-	if contains(realtimeResp.Body.String(), `"codex_proxy_accounts":`) || contains(realtimeResp.Body.String(), "codex-private") || contains(realtimeResp.Body.String(), `"api_keys":`) || contains(realtimeResp.Body.String(), `"auth_files":`) || contains(realtimeResp.Body.String(), `"ai_providers":`) {
+	if contains(realtimeResp.Body.String(), `"api_keys":`) || contains(realtimeResp.Body.String(), `"auth_files":`) || contains(realtimeResp.Body.String(), `"ai_providers":`) {
 		t.Fatalf("expected key overview realtime to omit internal current-usage dimensions, got %s", realtimeResp.Body.String())
 	}
 	if provider.realtimeCalls != 1 {
@@ -720,54 +719,5 @@ func TestUsageOverviewRealtimeAPIKeyHistoryIdentifiersDoNotCollide(t *testing.T)
 	}
 	if result[0].Key[:7] != "legacy:" || result[1].Key[:7] != "legacy:" {
 		t.Fatalf("unexpected history API Key identifiers: %+v", result)
-	}
-}
-
-func TestUsageOverviewRealtimeCodexProxyAccounts(t *testing.T) {
-	realtime := &servicedto.UsageOverviewRealtime{CurrentUsage: servicedto.RealtimeCurrentUsage{CodexProxyAccounts: []servicedto.RealtimeUsageTopItem{{Key: "account", Label: "Codex Account", Tokens: 42, Requests: 2}}}}
-	payload := buildUsageOverviewRealtime(realtime, "15m", nil)
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !contains(string(encoded), `"codex_proxy_accounts":[{"key":"account","label":"Codex Account","tokens":42,"requests":2`) {
-		t.Fatalf("missing distinct accounts: %s", encoded)
-	}
-}
-
-type codexComparisonStub struct{ usageFilterStub }
-
-func (s *codexComparisonStub) GetUsageOverviewComparisons(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
-	s.lastFilter = filter
-	return &servicedto.UsageOverviewSnapshot{Comparisons: &dto.UsageOverviewComparisonsRecord{
-		Models:             map[string]*dto.UsageComparisonItemRecord{"model": {Key: "model", TotalTokens: 42}},
-		CodexProxyAccounts: map[string]*dto.UsageComparisonItemRecord{"private-account": {Key: "private-account", Label: "Private Account", TotalTokens: 42}},
-	}}, nil
-}
-func TestKeyOverviewComparisonsStripsCodexProxyAccounts(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := &codexComparisonStub{}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "viewer-key"}}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview/comparisons?api_key_id=999", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, req)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", response.Code, response.Body.String())
-	}
-	if provider.lastFilter.APIKeyID != "42" {
-		t.Fatalf("viewer scope lost: %+v", provider.lastFilter)
-	}
-	if contains(response.Body.String(), "codex_proxy_accounts") || contains(response.Body.String(), "private-account") {
-		t.Fatalf("private identity leaked: %s", response.Body.String())
-	}
-	if !contains(response.Body.String(), `"total_tokens":42`) {
-		t.Fatalf("model totals lost: %s", response.Body.String())
 	}
 }

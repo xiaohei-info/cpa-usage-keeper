@@ -85,7 +85,6 @@ function normalizeOverviewRealtimeBlock(
       api_keys: currentUsage.api_keys ?? [],
       auth_files: currentUsage.auth_files ?? [],
       ai_providers: currentUsage.ai_providers ?? [],
-      codex_proxy_accounts: currentUsage.codex_proxy_accounts ?? [],
     },
     request_level: block.request_level ?? [],
     cache_level: block.cache_level ?? [],

@@ -35,10 +35,6 @@ func applyUsageOverviewIdentityComparison(comparisons *dto.UsageOverviewComparis
 		row.Label = identity.label
 		addUsageOverviewComparison(comparisons.AIProviders, identity.identity, row)
 	}
-	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeCodexProxy, strings.TrimSpace(authIndex)); ok {
-		row.Label = identity.label
-		addUsageOverviewComparison(comparisons.CodexProxyAccounts, identity.identity, row)
-	}
 }
 
 func addUsageOverviewComparison(items map[string]*dto.UsageComparisonItemRecord, key string, row dto.UsageComparisonItemRecord) {

@@ -30,19 +30,6 @@ func TestResolverPrefersModelThenFallsBackToAlias(t *testing.T) {
 	}
 }
 
-func TestResolverMarksCodexProxyCostUnavailable(t *testing.T) {
-	t.Parallel()
-
-	resolver := compileResolver(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("gpt-6-astra", 10)})
-	result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{
-		APIGroupKey: "codex-proxy",
-		Model:       "gpt-6-astra",
-	}, helper.UsageTokenCostInput{InputTokens: 1_000_000, OutputTokens: 100_000}))
-	if result.Available || result.Cost.TotalCostUSD != 0 {
-		t.Fatalf("expected Codex Proxy cost to be unavailable, got %+v", result)
-	}
-}
-
 func TestResolverPreservesMissingPriceAvailabilityContract(t *testing.T) {
 	t.Parallel()
 
@@ -278,5 +265,15 @@ func assertUsageCostBreakdownEqual(t *testing.T, got, want helper.UsageTokenCost
 		if math.Abs(pair[0]-pair[1]) > math.Max(1e-9, math.Abs(pair[1])*1e-12) {
 			t.Fatalf("%s cost = %.12f, want %.12f", name, pair[0], pair[1])
 		}
+	}
+}
+
+func TestCodexGroupUsesExistingModelPricing(t *testing.T) {
+	resolver := compileResolver(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("priced", 10)})
+	tokens := helper.UsageTokenCostInput{InputTokens: 1_000_000}
+	cpa := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{APIGroupKey: "cpa-key", Model: "priced"}, tokens))
+	codex := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{APIGroupKey: "codex-proxy", Model: "priced"}, tokens))
+	if !codex.Available || codex.Cost.TotalCostUSD != cpa.Cost.TotalCostUSD || codex.Cost.TotalCostUSD != 10 {
+		t.Fatalf("pricing differs: CPA=%+v Codex=%+v", cpa, codex)
 	}
 }

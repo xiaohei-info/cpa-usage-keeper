@@ -533,7 +533,6 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	lookup := analysisIdentityLookup{
 		entities.UsageIdentityAuthTypeAuthFile:   map[string]analysisIdentityInfo{},
 		entities.UsageIdentityAuthTypeAIProvider: map[string]analysisIdentityInfo{},
-		entities.UsageIdentityAuthTypeCodexProxy: map[string]analysisIdentityInfo{},
 	}
 	if len(authIndexes) == 0 {
 		return lookup, nil
@@ -541,7 +540,7 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	for start := 0; start < len(authIndexes); start += analysisIdentityLookupBatchSize {
 		end := min(start+analysisIdentityLookupBatchSize, len(authIndexes))
 		var identities []entities.UsageIdentity
-		if err := db.Where("identity IN ? AND auth_type IN ? AND is_deleted = ?", authIndexes[start:end], []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider, entities.UsageIdentityAuthTypeCodexProxy}, false).Find(&identities).Error; err != nil {
+		if err := db.Where("identity IN ? AND auth_type IN ? AND is_deleted = ?", authIndexes[start:end], []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider}, false).Find(&identities).Error; err != nil {
 			return nil, fmt.Errorf("load analysis usage identities: %w", err)
 		}
 		for _, identity := range identities {
@@ -559,16 +558,15 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
 	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
 	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
-	codexProxyTotals := map[string]*dto.AnalysisCompositionRecord{}
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
 		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
 		cost, costAvailable := costResult.Cost, costResult.Available
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, codexProxyTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
-	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, codexProxyTotals, heatmapTotals)
+	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
 func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
@@ -578,16 +576,15 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
 	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
 	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
-	codexProxyTotals := map[string]*dto.AnalysisCompositionRecord{}
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
 		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
 		cost, costAvailable := costResult.Cost, costResult.Available
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, codexProxyTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
-	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, codexProxyTotals, heatmapTotals)
+	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
 func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
@@ -676,7 +673,7 @@ func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, request
 	}
 }
 
-func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals, codexProxyTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
 		return
@@ -686,9 +683,6 @@ func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, aut
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAIProvider, authIndex); ok {
 		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
-	}
-	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeCodexProxy, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(codexProxyTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 	}
 }
 
@@ -733,7 +727,7 @@ func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.Usa
 	}
 }
 
-func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals, authFileTotals, aiProviderTotals, codexProxyTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
+func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
 	for _, bucket := range bucketTotals {
 		record.TokenUsage = append(record.TokenUsage, *bucket)
 	}
@@ -773,10 +767,6 @@ func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Ti
 		record.AIProviderComposition = append(record.AIProviderComposition, *item)
 	}
 	sortAnalysisComposition(record.AIProviderComposition)
-	for _, item := range codexProxyTotals {
-		record.CodexProxyComposition = append(record.CodexProxyComposition, *item)
-	}
-	sortAnalysisComposition(record.CodexProxyComposition)
 	for _, cell := range heatmapTotals {
 		record.Heatmap = append(record.Heatmap, *cell)
 	}
@@ -893,7 +883,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	if filter.ComparisonOnly {
 		overview.Comparisons = &dto.UsageOverviewComparisonsRecord{
 			Models: map[string]*dto.UsageComparisonItemRecord{}, APIKeys: map[string]*dto.UsageComparisonItemRecord{},
-			AuthFiles: map[string]*dto.UsageComparisonItemRecord{}, AIProviders: map[string]*dto.UsageComparisonItemRecord{}, CodexProxyAccounts: map[string]*dto.UsageComparisonItemRecord{},
+			AuthFiles: map[string]*dto.UsageComparisonItemRecord{}, AIProviders: map[string]*dto.UsageComparisonItemRecord{},
 		}
 	}
 	if strings.TrimSpace(filter.Range) == "custom" {
@@ -1407,7 +1397,6 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 	apiKeyUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	authFileUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	aiProviderUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
-	codexProxyUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 
 	for _, realtimeEvent := range events {
 		// 缓存事件已经是最小投影，这里转回 UsageEvent 复用现有 cost/token helper。
@@ -1428,7 +1417,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		}
 		if visibleEvent {
 			// current usage 的请求数同样包含成功和失败，token 后续只由成功请求累计。
-			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, codexProxyUsage, identityLookup)
+			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
 		if !event.Failed && usageEventGenerateEnabled(event.Generate) && event.TTFTMS != nil && *event.TTFTMS > 0 && event.LatencyMS > 0 {
 			// TTFT 和 Latency 共用同一有效请求样本，避免两张响应分布图的统计口径不一致。
@@ -1460,12 +1449,12 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		}
 		if visibleEvent {
 			// current usage 的 token 占比只统计有 token 的成功请求。
-			applyUsageOverviewRealtimeTokenUsage(realtimeEvent, cost, costResult.Available, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, codexProxyUsage, identityLookup)
+			applyUsageOverviewRealtimeTokenUsage(realtimeEvent, cost, costResult.Available, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
 	}
 
 	// 最后统一把 bucket、percentile 和 Top5 accumulator 映射成 API DTO。
-	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, codexProxyUsage), nil
+	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
 }
 
 func usageEventGenerateEnabled(generate *bool) bool {
@@ -1628,14 +1617,14 @@ func collectRealtimeAuthIndexes(events []usageOverviewRealtimeEvent, visibleStar
 	return result
 }
 
-func applyUsageOverviewRealtimeRequest(realtimeEvent usageOverviewRealtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, codexProxyUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
+func applyUsageOverviewRealtimeRequest(realtimeEvent usageOverviewRealtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
 	event := realtimeEvent.event
 	// 模型维度的请求数不区分成功失败。
 	applyUsageOverviewRealtimeRequestToTotals(modelUsage, normalizeUsageOverviewDimension(event.Model), normalizeUsageOverviewDimension(event.Model))
 	// API Key 维度使用 api_group_key，KeyOverview 前端会隐藏这个 tab。
 	applyUsageOverviewRealtimeRequestToTotals(apiKeyUsage, normalizeUsageOverviewDimension(event.APIGroupKey), normalizeUsageOverviewDimension(event.APIGroupKey))
 	// Auth File / AI Provider 维度先走身份表，缺失时再用缓存 fallback。
-	applyUsageOverviewRealtimeIdentityRequest(realtimeEvent, authFileUsage, aiProviderUsage, codexProxyUsage, identityLookup)
+	applyUsageOverviewRealtimeIdentityRequest(realtimeEvent, authFileUsage, aiProviderUsage, identityLookup)
 }
 
 func applyUsageOverviewRealtimeRequestToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string) {
@@ -1644,14 +1633,14 @@ func applyUsageOverviewRealtimeRequestToTotals(totals map[string]*usageOverviewR
 	item.requests++
 }
 
-func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEvent, cost float64, costAvailable bool, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, codexProxyUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
+func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEvent, cost float64, costAvailable bool, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
 	event := realtimeEvent.event
 	// token share 的模型维度只统计成功且有 token 的请求。
 	applyUsageOverviewRealtimeTokenUsageToTotals(modelUsage, normalizeUsageOverviewDimension(event.Model), normalizeUsageOverviewDimension(event.Model), event.TotalTokens, cost, costAvailable)
 	// token share 的 API Key 维度同样按 api_group_key 聚合。
 	applyUsageOverviewRealtimeTokenUsageToTotals(apiKeyUsage, normalizeUsageOverviewDimension(event.APIGroupKey), normalizeUsageOverviewDimension(event.APIGroupKey), event.TotalTokens, cost, costAvailable)
 	// 身份维度 token 聚合保持和请求数相同的身份解析策略。
-	applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent, authFileUsage, aiProviderUsage, codexProxyUsage, identityLookup, cost, costAvailable)
+	applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent, authFileUsage, aiProviderUsage, identityLookup, cost, costAvailable)
 }
 
 func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string, tokens int64, cost float64, costAvailable bool) {
@@ -1675,48 +1664,39 @@ func usageOverviewRealtimeTopItem(totals map[string]*usageOverviewRealtimeTopAcc
 	return item
 }
 
-func applyUsageOverviewRealtimeIdentityRequest(realtimeEvent usageOverviewRealtimeEvent, authFileUsage, aiProviderUsage, codexProxyUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
+func applyUsageOverviewRealtimeIdentityRequest(realtimeEvent usageOverviewRealtimeEvent, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
 	// 一条事件最多归属 Auth File 或 AI Provider 其中一个身份维度。
-	authFile, aiProvider, codexProxy := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
+	authFile, aiProvider := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
 	if authFile != nil {
 		applyUsageOverviewRealtimeRequestToTotals(authFileUsage, authFile.identity, authFile.label)
 	}
 	if aiProvider != nil {
 		applyUsageOverviewRealtimeRequestToTotals(aiProviderUsage, aiProvider.identity, aiProvider.label)
 	}
-	if codexProxy != nil {
-		applyUsageOverviewRealtimeRequestToTotals(codexProxyUsage, codexProxy.identity, codexProxy.label)
-	}
 }
 
-func applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent usageOverviewRealtimeEvent, authFileUsage, aiProviderUsage, codexProxyUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup, cost float64, costAvailable bool) {
+func applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent usageOverviewRealtimeEvent, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup, cost float64, costAvailable bool) {
 	event := realtimeEvent.event
 	// token 累计使用和 request 累计相同的身份解析结果，避免两张 Top5 对不上。
-	authFile, aiProvider, codexProxy := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
+	authFile, aiProvider := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
 	if authFile != nil {
 		applyUsageOverviewRealtimeTokenUsageToTotals(authFileUsage, authFile.identity, authFile.label, event.TotalTokens, cost, costAvailable)
 	}
 	if aiProvider != nil {
 		applyUsageOverviewRealtimeTokenUsageToTotals(aiProviderUsage, aiProvider.identity, aiProvider.label, event.TotalTokens, cost, costAvailable)
 	}
-	if codexProxy != nil {
-		applyUsageOverviewRealtimeTokenUsageToTotals(codexProxyUsage, codexProxy.identity, codexProxy.label, event.TotalTokens, cost, costAvailable)
-	}
 }
 
-func usageOverviewRealtimeIdentityTargets(realtimeEvent usageOverviewRealtimeEvent, identityLookup analysisIdentityLookup) (*analysisIdentityInfo, *analysisIdentityInfo, *analysisIdentityInfo) {
+func usageOverviewRealtimeIdentityTargets(realtimeEvent usageOverviewRealtimeEvent, identityLookup analysisIdentityLookup) (*analysisIdentityInfo, *analysisIdentityInfo) {
 	event := realtimeEvent.event
 	// 优先用 auth_index 查 usage_identities，保证展示名和凭证页面一致。
 	authIndex := strings.TrimSpace(event.AuthIndex)
 	if authIndex != "" {
 		if info, ok := identityLookup[entities.UsageIdentityAuthTypeAuthFile][authIndex]; ok {
-			return &info, nil, nil
+			return &info, nil
 		}
 		if info, ok := identityLookup[entities.UsageIdentityAuthTypeAIProvider][authIndex]; ok {
-			return nil, &info, nil
-		}
-		if info, ok := identityLookup[entities.UsageIdentityAuthTypeCodexProxy][authIndex]; ok {
-			return nil, nil, &info
+			return nil, &info
 		}
 	}
 	// 身份表找不到时，使用缓存里预先保存的 source/provider fallback。
@@ -1726,7 +1706,7 @@ func usageOverviewRealtimeIdentityTargets(realtimeEvent usageOverviewRealtimeEve
 		fallbackKey = fallbackLabel
 	}
 	if fallbackKey == "" {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if fallbackLabel == "" {
 		fallbackLabel = fallbackKey
@@ -1735,11 +1715,11 @@ func usageOverviewRealtimeIdentityTargets(realtimeEvent usageOverviewRealtimeEve
 	fallback := analysisIdentityInfo{identity: fallbackKey, label: fallbackLabel}
 	switch realtimeEvent.identityFallbackKind {
 	case RecentUsageIdentityAuthFile:
-		return &fallback, nil, nil
+		return &fallback, nil
 	case RecentUsageIdentityAIProvider:
-		return nil, &fallback, nil
+		return nil, &fallback
 	default:
-		return nil, nil, nil
+		return nil, nil
 	}
 }
 
@@ -1773,7 +1753,7 @@ func aggregateUsageOverviewRealtimeBucket(buckets []usageOverviewRealtimeBucket,
 	return aggregated
 }
 
-func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, windowEnd time.Time, buckets []usageOverviewRealtimeBucket, visibleStartIndex int, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, codexProxyUsage map[string]*usageOverviewRealtimeTopAccumulator) dto.UsageOverviewRealtimeRecord {
+func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, windowEnd time.Time, buckets []usageOverviewRealtimeBucket, visibleStartIndex int, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator) dto.UsageOverviewRealtimeRecord {
 	visibleBucketCount := len(buckets) - visibleStartIndex
 	tokenVelocity := make([]dto.RealtimeTokenVelocityPointRecord, 0, visibleBucketCount)
 	responseLevel := make([]dto.RealtimeResponseLevelPointRecord, 0, visibleBucketCount)
@@ -1846,11 +1826,10 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, wind
 		ResponseLevel:        responseLevel,
 		ResponseDistribution: responseDistribution,
 		CurrentUsage: dto.RealtimeCurrentUsageRecord{
-			Models:             finalizeUsageOverviewRealtimeTopItems(modelUsage),
-			APIKeys:            finalizeUsageOverviewRealtimeTopItems(apiKeyUsage),
-			AuthFiles:          finalizeUsageOverviewRealtimeTopItems(authFileUsage),
-			AIProviders:        finalizeUsageOverviewRealtimeTopItems(aiProviderUsage),
-			CodexProxyAccounts: finalizeUsageOverviewRealtimeTopItems(codexProxyUsage),
+			Models:      finalizeUsageOverviewRealtimeTopItems(modelUsage),
+			APIKeys:     finalizeUsageOverviewRealtimeTopItems(apiKeyUsage),
+			AuthFiles:   finalizeUsageOverviewRealtimeTopItems(authFileUsage),
+			AIProviders: finalizeUsageOverviewRealtimeTopItems(aiProviderUsage),
 		},
 		RequestLevel: requestLevel,
 		CacheLevel:   cacheLevel,

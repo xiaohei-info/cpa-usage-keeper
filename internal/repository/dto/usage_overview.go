@@ -91,11 +91,10 @@ type RealtimeUsageTopItemRecord struct {
 
 // RealtimeCurrentUsageRecord 是 Overview 当前使用按维度聚合的 Top 列表。
 type RealtimeCurrentUsageRecord struct {
-	Models             []RealtimeUsageTopItemRecord
-	APIKeys            []RealtimeUsageTopItemRecord
-	AuthFiles          []RealtimeUsageTopItemRecord
-	AIProviders        []RealtimeUsageTopItemRecord
-	CodexProxyAccounts []RealtimeUsageTopItemRecord
+	Models      []RealtimeUsageTopItemRecord
+	APIKeys     []RealtimeUsageTopItemRecord
+	AuthFiles   []RealtimeUsageTopItemRecord
+	AIProviders []RealtimeUsageTopItemRecord
 }
 
 // UsageOverviewRealtimeRecord 是 Overview 页面实时图表区使用的数据块。
@@ -155,11 +154,10 @@ type UsageComparisonItemRecord struct {
 
 // UsageOverviewComparisonsRecord 在压缩汇总行与边界事件遍历中按维度累计。
 type UsageOverviewComparisonsRecord struct {
-	Models             map[string]*UsageComparisonItemRecord
-	APIKeys            map[string]*UsageComparisonItemRecord
-	AuthFiles          map[string]*UsageComparisonItemRecord
-	AIProviders        map[string]*UsageComparisonItemRecord
-	CodexProxyAccounts map[string]*UsageComparisonItemRecord
+	Models      map[string]*UsageComparisonItemRecord
+	APIKeys     map[string]*UsageComparisonItemRecord
+	AuthFiles   map[string]*UsageComparisonItemRecord
+	AIProviders map[string]*UsageComparisonItemRecord
 }
 
 // RealtimeWindowSummaryRecord 是选定可见短窗的非重叠总量，排除平滑预热段。

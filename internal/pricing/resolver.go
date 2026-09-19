@@ -2,12 +2,7 @@ package pricing
 
 import (
 	"cpa-usage-keeper/internal/helper"
-	"strings"
 )
-
-// Codex Proxy usage is quota-based, not metered at the CPA API pricing layer.
-// Keep token/request aggregates while refusing to invent a dollar amount.
-const CodexProxyAPIGroupKey = "codex-proxy"
 
 // CostSubject 是所有 usage 来源进入计价领域的唯一固定输入。
 type CostSubject struct {
@@ -44,9 +39,6 @@ func (r Resolver) ActiveFields() ActiveFields {
 }
 
 func (r Resolver) Calculate(subject CostSubject) CostResult {
-	if strings.TrimSpace(subject.Dimensions.APIGroupKey) == CodexProxyAPIGroupKey {
-		return CostResult{Available: false, RuleMultiplier: 1}
-	}
 	model, matchedModel, matchedBy, found := r.matchModel(subject.Dimensions)
 	if !found {
 		return CostResult{

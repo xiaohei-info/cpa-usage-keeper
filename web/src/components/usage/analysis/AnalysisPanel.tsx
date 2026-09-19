@@ -24,9 +24,9 @@ interface AnalysisPanelProps {
   compositionDimensions?: readonly AnalysisCompositionDimension[];
 }
 
-export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider' | 'codex_proxy';
+export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
 
-const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'auth_files', 'ai_provider', 'codex_proxy'];
+const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'auth_files', 'ai_provider'];
 
 type ChartRow = {
   label: string;
@@ -2069,7 +2069,6 @@ export function AnalysisPanel({
   const modelComposition = analysis?.model_composition ?? EMPTY_COMPOSITION_ITEMS;
   const authFilesComposition = analysis?.auth_files_composition ?? EMPTY_COMPOSITION_ITEMS;
   const aiProviderComposition = analysis?.ai_provider_composition ?? EMPTY_COMPOSITION_ITEMS;
-  const codexProxyComposition = analysis?.codex_proxy_composition ?? EMPTY_COMPOSITION_ITEMS;
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
   const compositionTabs = useMemo<CompositionTab[]>(() => {
     const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
@@ -2077,10 +2076,9 @@ export function AnalysisPanel({
       model: { id: 'model', label: t('usage_stats.analysis_composition_model_tab'), items: modelComposition },
       auth_files: { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
       ai_provider: { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
-      codex_proxy: { id: 'codex_proxy', label: t('usage_stats.analysis_composition_codex_proxy_tab'), items: codexProxyComposition },
     };
     return compositionDimensions.map((dimension) => tabs[dimension]);
-  }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, codexProxyComposition, compositionDimensions, t]);
+  }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, compositionDimensions, t]);
 
   return (
     <div className={styles.analysisPanel}>

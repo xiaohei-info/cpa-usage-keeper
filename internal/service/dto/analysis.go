@@ -117,7 +117,6 @@ type AnalysisSnapshot struct {
 	ModelComposition      []AnalysisCompositionItem
 	AuthFilesComposition  []AnalysisCompositionItem
 	AIProviderComposition []AnalysisCompositionItem
-	CodexProxyComposition []AnalysisCompositionItem
 	Heatmap               []AnalysisHeatmapCell
 	CostBreakdown         AnalysisCostBreakdown
 	ModelEfficiency       []AnalysisModelEfficiencyItem

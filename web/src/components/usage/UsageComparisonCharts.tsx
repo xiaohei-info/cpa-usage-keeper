@@ -20,8 +20,8 @@ const rowStyle = (row: ComparisonRow, index: number): CSSProperties => {
 const formatCost = (value: number | null) => value === null ? '—' : formatUsd(value);
 const formatShare = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
 
-type UsageDimension = 'api_keys' | 'auth_files' | 'ai_providers' | 'codex_proxy_accounts';
-const DIMENSION_KEYS: readonly UsageDimension[] = ['api_keys', 'auth_files', 'ai_providers', 'codex_proxy_accounts'];
+type UsageDimension = 'api_keys' | 'auth_files' | 'ai_providers';
+const DIMENSION_KEYS: readonly UsageDimension[] = ['api_keys', 'auth_files', 'ai_providers'];
 
 function ComparisonChart({ items, dimension, loading, dimensions, titleKey }: { items: UsageComparisonItem[]; dimension: 'models' | UsageDimension; loading: boolean; dimensions?: Partial<Record<UsageDimension, UsageComparisonItem[]>>; titleKey?: string }) {
   const { t } = useTranslation();
@@ -103,7 +103,7 @@ export function UsageComparisonCharts({ comparisons, loading, keyViewer = false 
       <ComparisonChart
         dimension="api_keys"
         items={comparisons?.api_keys ?? EMPTY}
-        dimensions={keyViewer ? undefined : { api_keys: comparisons?.api_keys ?? EMPTY, auth_files: comparisons?.auth_files ?? EMPTY, ai_providers: comparisons?.ai_providers ?? EMPTY, codex_proxy_accounts: comparisons?.codex_proxy_accounts ?? EMPTY }}
+        dimensions={keyViewer ? undefined : { api_keys: comparisons?.api_keys ?? EMPTY, auth_files: comparisons?.auth_files ?? EMPTY, ai_providers: comparisons?.ai_providers ?? EMPTY }}
         titleKey={keyViewer ? 'usage_stats.comparison_api_keys' : 'usage_stats.comparison_token_usage'}
         loading={loading}
       />
