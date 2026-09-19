@@ -48,27 +48,16 @@ type Page struct {
 const AccountMetadataSchema = "codex-proxy.keeper-account-metadata.v1"
 
 type AccountMetadata struct {
-	AccountEntryID string          `json:"account_entry_id"`
-	Email          string          `json:"email"`
-	Label          string          `json:"label"`
-	AccountID      string          `json:"account_id"`
-	OrganizationID string          `json:"organization_id"`
-	UserID         string          `json:"user_id"`
-	PlanType       string          `json:"plan_type"`
-	Status         string          `json:"status"`
-	AddedAt        time.Time       `json:"added_at"`
-	ExpiresAt      *time.Time      `json:"expires_at"`
-	Usage          AccountUsage    `json:"usage"`
-	CachedQuota    json.RawMessage `json:"cached_quota"`
-	QuotaFetchedAt *time.Time      `json:"quota_fetched_at"`
-	VerifyRequired bool            `json:"quota_verify_required"`
-}
-
-type AccountUsage struct {
-	RequestCount int64 `json:"request_count"`
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	CachedTokens int64 `json:"cached_tokens"`
+	AccountEntryID string     `json:"account_entry_id"`
+	Email          string     `json:"email"`
+	Label          string     `json:"label"`
+	AccountID      string     `json:"account_id"`
+	OrganizationID string     `json:"organization_id"`
+	UserID         string     `json:"user_id"`
+	PlanType       string     `json:"plan_type"`
+	Status         string     `json:"status"`
+	AddedAt        time.Time  `json:"added_at"`
+	ExpiresAt      *time.Time `json:"expires_at"`
 }
 
 type AccountsPage struct {
@@ -162,8 +151,8 @@ func (c *Client) Pull(ctx context.Context, after int64, limit int) (Page, error)
 		if (event.EventType == "request.failed") != event.Failed {
 			return Page{}, fmt.Errorf("codex proxy event type %q is inconsistent with failed=%t", event.EventType, event.Failed)
 		}
-		if event.EventID == "" || event.RequestID == "" || event.AttemptID == "" {
-			return Page{}, fmt.Errorf("codex proxy event requires event_id, request_id, and attempt_id")
+		if event.EventID == "" || event.RequestID == "" {
+			return Page{}, fmt.Errorf("codex proxy event requires event_id and request_id")
 		}
 	}
 	if len(page.Events) > 0 && page.NextCursor <= after {

@@ -2,6 +2,7 @@ package codexproxy
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,7 +44,37 @@ func TestAccountsAndPullAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.AuthIndex != "acct" || u.APIGroupKey != "codex-proxy" || u.ExecutorType != tokenprocessor.CodexExecutor || u.TotalTokens != 12 || u.CachedTokens != 8 || u.ReasoningTokens != 1 || u.Failed {
+	if u.AuthIndex != "acct" || u.APIGroupKey != "codex" || u.ExecutorType != tokenprocessor.CodexExecutor || u.TotalTokens != 12 || u.CachedTokens != 8 || u.ReasoningTokens != 1 || u.Failed {
 		t.Fatalf("usage=%+v", u)
+	}
+}
+
+func TestPullLegacyEventStillRequiresStableIDs(t *testing.T) {
+	for _, missing := range []string{"", "event_id", "request_id"} {
+		t.Run("missing_"+missing, func(t *testing.T) {
+			event := map[string]any{"schema": "codex-proxy.keeper-event.v1", "event_type": "request.completed", "event_id": "legacy-event", "request_id": "legacy-request", "failed": false}
+			delete(event, missing)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]any{"schema": "codex-proxy.keeper-event.v1", "after": 0, "next_cursor": 1, "events": []any{event}})
+			}))
+			defer server.Close()
+			page, err := NewClient(server.URL, "", time.Second).Pull(context.Background(), 0, 10)
+			if missing != "" {
+				if err == nil {
+					t.Fatal("accepted missing stable ID")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Events[0].AttemptID != "" {
+				t.Fatal("invented attempt ID")
+			}
+			mapped, err := page.Events[0].UsageEvent(time.Now())
+			if err != nil || mapped.EventKey != "legacy-event" || mapped.Source != "codex-proxy" {
+				t.Fatalf("legacy mapping: %+v, %v", mapped, err)
+			}
+		})
 	}
 }
