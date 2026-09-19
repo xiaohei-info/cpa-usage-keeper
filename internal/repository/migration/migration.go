@@ -96,6 +96,8 @@ const (
 	migrationAddUsageEventAPIGroupKeyTimestampIndex = "20260905_usage_event_api_group_key_timestamp_index"
 	migrationAddUsageIdentityStatsReset             = "20260910_usage_identity_stats_reset"
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
+	// migrationCreateCodexProxyTables 创建 Codex Proxy 事件游标与去重表，仅服务新数据源。
+	migrationCreateCodexProxyTables = "20260918_create_codex_proxy_tables"
 )
 
 type schemaMigration struct {
@@ -243,6 +245,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventAPIGroupKeyTimestampIndex, run: addUsageEventAPIGroupKeyTimestampIndexMigration},
 		{version: migrationAddUsageIdentityStatsReset, run: addUsageIdentityStatsResetMigration},
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
+		// 新表 migration 使用默认单事务，schema 与版本标记必须一起提交或回滚。
+		{version: migrationCreateCodexProxyTables, run: createCodexProxyTablesMigration},
 	}
 }
 
