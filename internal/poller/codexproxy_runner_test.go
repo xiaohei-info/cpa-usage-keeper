@@ -19,6 +19,7 @@ import (
 
 func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 	emptyAccounts := false
+	unhealthyAccounts := false
 	status := 200
 	latency := int64(42)
 	page := map[string]any{
@@ -29,7 +30,7 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 			"occurred_at": "2026-09-18T09:00:00Z", "request_id": "req-1", "attempt_id": "attempt-1",
 			"account_entry_id": "acct-1", "provider": "codex", "endpoint": "/v1/responses",
 			"model": "gpt-5.6-sol", "status_code": status, "failed": false, "fallback": false,
-			"latency_ms": latency, "usage": map[string]any{"input_tokens": 10, "output_tokens": 2, "cached_tokens": 4, "reasoning_tokens": 1},
+			"reasoning_effort": "low", "latency_ms": latency, "usage": map[string]any{"input_tokens": 10, "output_tokens": 2, "cached_tokens": 4, "reasoning_tokens": 1},
 		}},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,12 +38,17 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 			t.Errorf("missing auth")
 		}
 		if r.URL.Path == "/admin/integration/keeper/accounts" {
+			if unhealthyAccounts {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"unavailable","reason":"account_registry_unhealthy"}`))
+				return
+			}
 			if emptyAccounts {
-				_, _ = w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","accounts":[]}`))
+				_, _ = w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","status":"ready","accounts":[]}`))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","accounts":[{"account_entry_id":"acct-1","email":"user@example.com","status":"active"}]}`))
+			_, _ = w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","status":"ready","accounts":[{"account_entry_id":"acct-1","email":"user@example.com","status":"active"}]}`))
 			return
 		}
 		if r.URL.Path != "/admin/integration/keeper/events" || r.URL.Query().Get("limit") != "10" {
@@ -86,7 +92,7 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 	}
 	defer sqlDB.Close()
 	runner = NewCodexProxyRunner(db, codexproxy.NewClient(server.URL, "test-token", time.Second), time.Second, 10)
-	emptyAccounts = true // A successful empty snapshot follows normal identity replacement.
+	unhealthyAccounts = true // A failed snapshot must not replace existing identities.
 	// Replay the same identity in a new page after reopening the persistent DB.
 	if err := runner.PullOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -115,12 +121,24 @@ func TestCodexProxyRunnerPersistsCheckpointAndDeduplicatesReplay(t *testing.T) {
 	if identity.IsDeleted || identity.Name != "user@example.com" {
 		t.Fatalf("unexpected synced identity: %+v", identity)
 	}
-	if events[0].AuthIndex != "acct-1" || events[0].TotalTokens != 12 || events[0].CachedTokens != 4 || events[0].Failed {
+	if events[0].ReasoningEffort != "low" || events[0].AuthIndex != "acct-1" || events[0].TotalTokens != 12 || events[0].CachedTokens != 4 || events[0].Failed {
 		t.Fatalf("unexpected mapped event: %+v", events[0])
 	}
 	var checkpoint entities.CodexProxyCheckpoint
 	if err := db.First(&checkpoint).Error; err != nil {
 		t.Fatal(err)
+	}
+	// Healthy intentional empty snapshots use existing replacement semantics.
+	unhealthyAccounts = false
+	emptyAccounts = true
+	if err := runner.syncAccounts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&identity, identity.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !identity.IsDeleted {
+		t.Fatal("healthy empty snapshot did not retire the previous identity")
 	}
 	if checkpoint.Cursor != 2 {
 		t.Fatalf("expected checkpoint 2, got %d", checkpoint.Cursor)
