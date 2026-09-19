@@ -271,10 +271,15 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	})
 	redisErrorIngestRunner := poller.NewRedisErrorIngestRunner(redisErrorSubscribeSource, errorEventService)
 	var codexProxyRunner Runner
+	// codexProxyRequestLogClient 复用同一个 Codex Proxy HTTP 客户端，
+	// 让请求详情与用量采集指向同一上游；未配置时为 nil。
+	var codexProxyRequestLogClient service.RequestLogClient
 	if cfg.CodexProxyBaseURL != "" {
-		runner := poller.NewCodexProxyRunner(db, codexproxy.NewClient(cfg.CodexProxyBaseURL, cfg.CodexProxyToken, cfg.RequestTimeout), cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
+		codexProxyClient := codexproxy.NewClient(cfg.CodexProxyBaseURL, cfg.CodexProxyToken, cfg.RequestTimeout)
+		runner := poller.NewCodexProxyRunner(db, codexProxyClient, cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
 		runner.SetPostCommitHooks(recentUsageCache, usageAggregationRunner)
 		codexProxyRunner = runner
+		codexProxyRequestLogClient = codexProxyClient
 	}
 	// Codex-only is an extension mode: do not expose or start the CPA poller at all.
 	// Keep the locally-built sources out of the App graph so status requests cannot
@@ -315,7 +320,16 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RecentUsage:    recentUsageCache,
 		PricingCatalog: pricingCatalog,
 	})
-	requestLogService := service.NewRequestLogService(db, cpaClient)
+	// 请求详情按事件来源路由：CPA 事件走 cpaClient，Codex Proxy 事件走 codex-proxy。
+	// 只配置 Codex 时 cpaClient 不参与，行为与原先一致。
+	requestLogService := service.NewMultiSourceRequestLogService(
+		db,
+		cpaClient,
+		codexProxyRequestLogClient,
+		func(ctx context.Context, eventID int64) (string, error) {
+			return repository.FindUsageEventSourceByID(db.WithContext(ctx), eventID)
+		},
+	)
 	usageIdentityService := service.NewUsageIdentityServiceWithOptions(db, recentUsageCache, service.UsageIdentityServiceOptions{
 		OnDisplayNameChanged: quotaService.UpdateUsageIdentityDisplayNameSnapshot,
 	})

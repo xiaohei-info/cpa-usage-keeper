@@ -607,3 +607,81 @@ func openRequestLogTestDB(t *testing.T) *gorm.DB {
 	})
 	return db
 }
+
+// TestMultiSourceRequestLogRoutesByEventSource 验证请求详情按事件来源路由：
+// Codex Proxy 事件不得打到 CPA，CPA 事件也不得打到 codex-proxy。
+func TestMultiSourceRequestLogRoutesByEventSource(t *testing.T) {
+	db := openRequestLogTestDB(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "cpa-1", RequestID: "req-cpa", Timestamp: time.Now(), Source: "sk-cpa-key"},
+		{EventKey: "codex-1", RequestID: "req-codex", Timestamp: time.Now(), Source: repository.CodexProxySource},
+	}); err != nil {
+		t.Fatalf("insert usage events: %v", err)
+	}
+
+	cpaClient := &requestLogClientStub{result: &cpa.RequestLogResult{
+		StatusCode: http.StatusOK,
+		Filename:   "cpa.log",
+		Body:       []byte("=== REQUEST INFO ===\nsource: cpa\n"),
+	}}
+	codexClient := &requestLogClientStub{result: &cpa.RequestLogResult{
+		StatusCode: http.StatusOK,
+		Filename:   "codex.log",
+		Body:       []byte("=== REQUEST INFO ===\nsource: codex\n"),
+	}}
+
+	provider := service.NewMultiSourceRequestLogService(
+		db,
+		cpaClient,
+		codexClient,
+		func(ctx context.Context, eventID int64) (string, error) {
+			return repository.FindUsageEventSourceByID(db.WithContext(ctx), eventID)
+		},
+	)
+
+	codexResp, err := provider.GetUsageEventRequestLog(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("codex event lookup: %v", err)
+	}
+	if codexResp.Filename != "codex.log" {
+		t.Fatalf("codex event should use codex client, got %q", codexResp.Filename)
+	}
+	if codexClient.calls == 0 || cpaClient.calls != 0 {
+		t.Fatalf("expected only codex client used, cpa=%d codex=%d", cpaClient.calls, codexClient.calls)
+	}
+
+	cpaResp, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("cpa event lookup: %v", err)
+	}
+	if cpaResp.Filename != "cpa.log" {
+		t.Fatalf("cpa event should use cpa client, got %q", cpaResp.Filename)
+	}
+	if cpaClient.calls != 1 {
+		t.Fatalf("expected cpa client used once, got %d", cpaClient.calls)
+	}
+}
+
+// TestMultiSourceRequestLogFallsBackWithoutCodexClient 验证未配置 Codex 时
+// 保持原有单来源行为。
+func TestMultiSourceRequestLogFallsBackWithoutCodexClient(t *testing.T) {
+	db := openRequestLogTestDB(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "codex-only", RequestID: "req-codex", Timestamp: time.Now(), Source: repository.CodexProxySource},
+	}); err != nil {
+		t.Fatalf("insert usage event: %v", err)
+	}
+	cpaClient := &requestLogClientStub{result: &cpa.RequestLogResult{
+		StatusCode: http.StatusOK,
+		Filename:   "cpa.log",
+		Body:       []byte("=== REQUEST INFO ===\nfallback\n"),
+	}}
+	provider := service.NewMultiSourceRequestLogService(db, cpaClient, nil, nil)
+	resp, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if resp.Filename != "cpa.log" || cpaClient.calls != 1 {
+		t.Fatalf("expected single-source fallback, got %+v calls=%d", resp, cpaClient.calls)
+	}
+}

@@ -2181,3 +2181,22 @@ func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
 	}
 	return timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(timestamp).Truncate(time.Hour)), 60
 }
+
+// CodexProxySource 是 Codex Proxy 数据源在 usage_events.source 中的稳定标识，
+// 与 poller 内部使用的常量保持一致。
+const CodexProxySource = "codex-proxy"
+
+// FindUsageEventSourceByID 返回事件的来源标识，供请求日志按来源选择上游。
+func FindUsageEventSourceByID(db *gorm.DB, id int64) (string, error) {
+	if db == nil {
+		return "", fmt.Errorf("database is nil")
+	}
+	if id <= 0 {
+		return "", gorm.ErrRecordNotFound
+	}
+	var event entities.UsageEvent
+	if err := db.Select("source").Where("id = ?", id).First(&event).Error; err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(event.Source), nil
+}

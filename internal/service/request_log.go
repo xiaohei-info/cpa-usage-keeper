@@ -60,10 +60,15 @@ type RequestLogSection struct {
 }
 
 type requestLogService struct {
-	db       *gorm.DB
-	client   RequestLogClient
-	mu       sync.Mutex
-	inflight map[string]*requestLogInflight
+	db     *gorm.DB
+	client RequestLogClient
+	// codexClient 服务 Codex Proxy 数据源的事件；CPA 数据源继续走 client。
+	// 两者互不影响：Codex 未配置时保持 nil，行为与改造前完全一致。
+	codexClient RequestLogClient
+	// sourceForEvent 按 usage event 判定请求日志应由哪个上游提供。
+	sourceForEvent func(ctx context.Context, eventID int64) (string, error)
+	mu             sync.Mutex
+	inflight       map[string]*requestLogInflight
 }
 
 type requestLogInflight struct {
@@ -83,6 +88,39 @@ func NewRequestLogService(db *gorm.DB, client RequestLogClient) RequestLogProvid
 	}
 }
 
+// NewMultiSourceRequestLogService 在 CPA 之外增加 Codex Proxy 数据源。
+// 未提供 codexClient/sourceForEvent 时，行为与 NewRequestLogService 一致。
+func NewMultiSourceRequestLogService(
+	db *gorm.DB,
+	cpaClient RequestLogClient,
+	codexClient RequestLogClient,
+	sourceForEvent func(ctx context.Context, eventID int64) (string, error),
+) RequestLogProvider {
+	service := &requestLogService{
+		db:             db,
+		client:         cpaClient,
+		codexClient:    codexClient,
+		sourceForEvent: sourceForEvent,
+		inflight:       map[string]*requestLogInflight{},
+	}
+	return service
+}
+
+// clientForEvent 选择事件对应的请求日志来源；无法判定时回退 CPA 客户端。
+func (s *requestLogService) clientForEvent(ctx context.Context, eventID int64) RequestLogClient {
+	if s.sourceForEvent == nil || s.codexClient == nil {
+		return s.client
+	}
+	source, err := s.sourceForEvent(ctx, eventID)
+	if err != nil {
+		return s.client
+	}
+	if source == repository.CodexProxySource {
+		return s.codexClient
+	}
+	return s.client
+}
+
 func (s *requestLogService) GetUsageEventRequestLog(ctx context.Context, eventID int64) (RequestLogResponse, error) {
 	if s == nil {
 		return RequestLogResponse{}, fmt.Errorf("request log service is nil")
@@ -90,7 +128,8 @@ func (s *requestLogService) GetUsageEventRequestLog(ctx context.Context, eventID
 	if s.db == nil {
 		return RequestLogResponse{}, fmt.Errorf("database is nil")
 	}
-	if s.client == nil {
+	client := s.clientForEvent(ctx, eventID)
+	if client == nil {
 		return RequestLogResponse{}, fmt.Errorf("request log client is not configured")
 	}
 	requestID, err := repository.FindUsageEventRequestIDByID(s.db.WithContext(ctx), eventID)
@@ -103,13 +142,13 @@ func (s *requestLogService) GetUsageEventRequestLog(ctx context.Context, eventID
 
 	inflight, leader := s.beginFetch(requestID)
 	if leader {
-		go s.fetchRequestLog(requestID, inflight)
+		go s.fetchRequestLog(client, requestID, inflight)
 	}
 	return s.waitForRequestLogFetch(ctx, eventID, requestID, inflight)
 }
 
-func (s *requestLogService) fetchRequestLog(requestID string, inflight *requestLogInflight) {
-	result, err := s.client.FetchRequestLogByID(inflight.fetchCtx, requestID)
+func (s *requestLogService) fetchRequestLog(client RequestLogClient, requestID string, inflight *requestLogInflight) {
+	result, err := client.FetchRequestLogByID(inflight.fetchCtx, requestID)
 	if err != nil {
 		if result != nil && result.StatusCode == http.StatusNotFound {
 			response := RequestLogResponse{RequestID: requestID, Available: false}
@@ -171,7 +210,8 @@ func (s *requestLogService) DownloadUsageEventRequestLog(ctx context.Context, ev
 	if s.db == nil {
 		return RequestLogDownload{}, fmt.Errorf("database is nil")
 	}
-	if s.client == nil {
+	client := s.clientForEvent(ctx, eventID)
+	if client == nil {
 		return RequestLogDownload{}, fmt.Errorf("request log client is not configured")
 	}
 	requestID, err := repository.FindUsageEventRequestIDByID(s.db.WithContext(ctx), eventID)
@@ -181,7 +221,7 @@ func (s *requestLogService) DownloadUsageEventRequestLog(ctx context.Context, ev
 	if requestID == "" {
 		return RequestLogDownload{EventID: eventID, Downloadable: false}, ErrRequestLogMissingID
 	}
-	result, err := s.client.OpenRequestLogByID(ctx, requestID)
+	result, err := client.OpenRequestLogByID(ctx, requestID)
 	if err != nil {
 		if result != nil && result.StatusCode == http.StatusNotFound {
 			return RequestLogDownload{EventID: eventID, RequestID: requestID, Downloadable: false}, ErrRequestLogUnavailable
