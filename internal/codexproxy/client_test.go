@@ -15,7 +15,7 @@ func TestAccountsAndPullAndMap(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin/integration/keeper/accounts" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","accounts":[{"account_entry_id":"acct","email":"user@example.com","label":"Work","account_id":"account-1","plan_type":"pro","status":"active","usage":{"request_count":3,"input_tokens":10,"output_tokens":2,"cached_tokens":8}}]}`))
+			w.Write([]byte(`{"schema":"codex-proxy.keeper-account-metadata.v1","status":"ready","accounts":[{"account_entry_id":"acct","email":"user@example.com","label":"Work","account_id":"account-1","plan_type":"pro","status":"active"}]}`))
 			return
 		}
 		if r.URL.Query().Get("after") != "7" {
@@ -74,6 +74,40 @@ func TestPullRequiresProducerIDs(t *testing.T) {
 			mapped, err := page.Events[0].UsageEvent(time.Now())
 			if err != nil || mapped.EventKey != "legacy-event" || mapped.Source != "codex-proxy" {
 				t.Fatalf("legacy mapping: %+v, %v", mapped, err)
+			}
+		})
+	}
+}
+
+func TestPullMapsOptionalReasoningEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field map[string]any
+		want  string
+	}{
+		{"absent", nil, ""},
+		{"null", map[string]any{"reasoning_effort": nil}, ""},
+		{"provided", map[string]any{"reasoning_effort": "low"}, "low"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := map[string]any{"schema": "codex-proxy.keeper-event.v1", "event_type": "request.completed", "event_id": "e1", "request_id": "r1", "attempt_id": "a1", "failed": false}
+			for key, value := range tc.field {
+				event[key] = value
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"schema": "codex-proxy.keeper-event.v1", "after": 0, "next_cursor": 1, "events": []any{event}})
+			}))
+			defer server.Close()
+			page, err := NewClient(server.URL, "", time.Second).Pull(context.Background(), 0, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			usage, err := page.Events[0].UsageEvent(time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if usage.ReasoningEffort != tc.want {
+				t.Fatalf("reasoning effort=%q, want %q", usage.ReasoningEffort, tc.want)
 			}
 		})
 	}

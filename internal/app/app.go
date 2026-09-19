@@ -271,6 +271,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	})
 	redisErrorIngestRunner := poller.NewRedisErrorIngestRunner(redisErrorSubscribeSource, errorEventService)
 	var codexProxyRunner Runner
+	var codexQuotaProvider interface {
+		CodexQuota(string) (codexproxy.QuotaSnapshot, bool)
+	}
 	// codexProxyRequestLogClient 复用同一个 Codex Proxy HTTP 客户端，
 	// 让请求详情与用量采集指向同一上游；未配置时为 nil。
 	var codexProxyRequestLogClient service.RequestLogClient
@@ -279,6 +282,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		runner := poller.NewCodexProxyRunner(db, codexProxyClient, cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
 		runner.SetPostCommitHooks(recentUsageCache, usageAggregationRunner)
 		codexProxyRunner = runner
+		codexQuotaProvider = runner
 		codexProxyRequestLogClient = codexProxyClient
 	}
 	// Codex-only is an extension mode: do not expose or start the CPA poller at all.
@@ -332,6 +336,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	)
 	usageIdentityService := service.NewUsageIdentityServiceWithOptions(db, recentUsageCache, service.UsageIdentityServiceOptions{
 		OnDisplayNameChanged: quotaService.UpdateUsageIdentityDisplayNameSnapshot,
+		CodexQuotaProvider:   codexQuotaProvider,
 	})
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
 	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient)

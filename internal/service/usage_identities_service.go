@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"cpa-usage-keeper/internal/codexproxy"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -49,6 +50,7 @@ type ListUsageIdentitiesResponse struct {
 	Total            int64
 	TypeCounts       []UsageIdentityTypeCount
 	CredentialHealth []UsageCredentialHealthSnapshot
+	CodexQuota       map[string]codexproxy.QuotaSnapshot
 }
 
 type UsageIdentityProvider interface {
@@ -60,6 +62,9 @@ type UsageIdentityProvider interface {
 
 type UsageIdentityServiceOptions struct {
 	OnDisplayNameChanged func(entities.UsageIdentity)
+	CodexQuotaProvider   interface {
+		CodexQuota(string) (codexproxy.QuotaSnapshot, bool)
+	}
 }
 
 // UsageIdentityStatsResetter 是管理员对本地统计基线的写入能力。
@@ -74,6 +79,7 @@ type UsageIdentityReader interface {
 type UsageIdentityDetail struct {
 	Identity         entities.UsageIdentity
 	CredentialHealth UsageCredentialHealthSnapshot
+	CodexQuota       *codexproxy.QuotaSnapshot
 }
 
 type usageIdentityService struct {
@@ -81,6 +87,9 @@ type usageIdentityService struct {
 	recentUsage          *repository.UsageRecentEventCache
 	now                  func() time.Time
 	onDisplayNameChanged func(entities.UsageIdentity)
+	codexQuotaProvider   interface {
+		CodexQuota(string) (codexproxy.QuotaSnapshot, bool)
+	}
 }
 
 func NewUsageIdentityService(db *gorm.DB) UsageIdentityProvider {
@@ -92,7 +101,7 @@ func NewUsageIdentityServiceWithRecentCache(db *gorm.DB, recentUsage *repository
 }
 
 func NewUsageIdentityServiceWithOptions(db *gorm.DB, recentUsage *repository.UsageRecentEventCache, options UsageIdentityServiceOptions) UsageIdentityProvider {
-	return &usageIdentityService{db: db, recentUsage: recentUsage, now: time.Now, onDisplayNameChanged: options.OnDisplayNameChanged}
+	return &usageIdentityService{db: db, recentUsage: recentUsage, now: time.Now, onDisplayNameChanged: options.OnDisplayNameChanged, codexQuotaProvider: options.CodexQuotaProvider}
 }
 
 func (s *usageIdentityService) ListUsageIdentities(ctx context.Context) ([]entities.UsageIdentity, error) {
@@ -116,7 +125,11 @@ func (s *usageIdentityService) GetUsageIdentity(ctx context.Context, id int64) (
 	}
 	// 与列表共用内存健康快照，只处理当前凭证，不额外查询请求历史。
 	health := s.credentialHealthSnapshots([]entities.UsageIdentity{identity})[0]
-	return UsageIdentityDetail{Identity: identity, CredentialHealth: health}, nil
+	detail := UsageIdentityDetail{Identity: identity, CredentialHealth: health}
+	if snapshot, ok := s.codexQuotaSnapshots([]entities.UsageIdentity{identity})[identity.Identity]; ok {
+		detail.CodexQuota = &snapshot
+	}
+	return detail, nil
 }
 
 func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context, request ListUsageIdentitiesRequest) (ListUsageIdentitiesResponse, error) {
@@ -131,7 +144,7 @@ func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context
 	if err != nil {
 		return ListUsageIdentitiesResponse{}, err
 	}
-	return ListUsageIdentitiesResponse{Items: items, Total: total, TypeCounts: typeCounts, CredentialHealth: s.credentialHealthSnapshots(items)}, nil
+	return ListUsageIdentitiesResponse{Items: items, Total: total, TypeCounts: typeCounts, CredentialHealth: s.credentialHealthSnapshots(items), CodexQuota: s.codexQuotaSnapshots(items)}, nil
 }
 
 func (s *usageIdentityService) UpdateUsageIdentityAlias(ctx context.Context, id int64, alias string) (entities.UsageIdentity, error) {
@@ -160,6 +173,22 @@ func (s *usageIdentityService) ResetUsageIdentityStats(ctx context.Context, id i
 		return entities.UsageIdentity{}, err
 	}
 	return repository.FindUsageIdentityByID(ctx, s.db.Clauses(dbresolver.Write), id)
+}
+
+func (s *usageIdentityService) codexQuotaSnapshots(items []entities.UsageIdentity) map[string]codexproxy.QuotaSnapshot {
+	result := make(map[string]codexproxy.QuotaSnapshot)
+	if s.codexQuotaProvider == nil {
+		return result
+	}
+	for _, item := range items {
+		if item.AuthType != entities.UsageIdentityAuthTypeCodexProxy {
+			continue
+		}
+		if snapshot, ok := s.codexQuotaProvider.CodexQuota(item.Identity); ok {
+			result[item.Identity] = snapshot
+		}
+	}
+	return result
 }
 
 func (s *usageIdentityService) credentialHealthSnapshots(items []entities.UsageIdentity) []UsageCredentialHealthSnapshot {

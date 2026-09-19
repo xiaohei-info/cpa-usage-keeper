@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"cpa-usage-keeper/internal/codexproxy"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/quota"
@@ -49,6 +50,7 @@ type usageIdentityPeriodStats struct {
 }
 
 type usageIdentityResponse struct {
+	CodexQuota                 *codexproxy.QuotaSnapshot      `json:"codex_quota,omitempty"`
 	ID                         string                         `json:"id"`
 	Name                       string                         `json:"name"`
 	Alias                      *string                        `json:"alias"`
@@ -131,7 +133,9 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 			writeInternalError(c, "get usage identity failed", err)
 			return
 		}
-		c.JSON(http.StatusOK, mapUsageIdentityResponseWithHealth(detail.Identity, &detail.CredentialHealth))
+		response := mapUsageIdentityResponseWithHealth(detail.Identity, &detail.CredentialHealth)
+		response.CodexQuota = detail.CodexQuota
+		c.JSON(http.StatusOK, response)
 	})
 	router.POST("/usage/identities/:id/stats/reset", func(c *gin.Context) {
 		resetter, ok := usageIdentityProvider.(service.UsageIdentityStatsResetter)
@@ -179,7 +183,13 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 			if index < len(result.CredentialHealth) {
 				health = &result.CredentialHealth[index]
 			}
-			response = append(response, mapUsageIdentityResponseWithHealth(item, health))
+			row := mapUsageIdentityResponseWithHealth(item, health)
+			if item.AuthType == entities.UsageIdentityAuthTypeCodexProxy {
+				if snapshot, ok := result.CodexQuota[item.Identity]; ok {
+					row.CodexQuota = &snapshot
+				}
+			}
+			response = append(response, row)
 		}
 		typeCounts := make([]usageIdentityTypeCount, 0, len(result.TypeCounts))
 		for _, item := range result.TypeCounts {

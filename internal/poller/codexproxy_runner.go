@@ -34,6 +34,8 @@ type CodexProxyRunner struct {
 	lastErr         error
 	accountSyncMu   sync.Mutex
 	lastAccountSync time.Time
+	quotaMu         sync.RWMutex
+	quotaSnapshots  map[string]codexproxy.QuotaSnapshot
 }
 
 func NewCodexProxyRunner(db *gorm.DB, client *codexproxy.Client, interval time.Duration, limit int) *CodexProxyRunner {
@@ -43,7 +45,7 @@ func NewCodexProxyRunner(db *gorm.DB, client *codexproxy.Client, interval time.D
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	return &CodexProxyRunner{db: db, client: client, interval: interval, limit: limit}
+	return &CodexProxyRunner{db: db, client: client, interval: interval, limit: limit, quotaSnapshots: make(map[string]codexproxy.QuotaSnapshot)}
 }
 
 func (r *CodexProxyRunner) Run(ctx context.Context) error {
@@ -149,20 +151,38 @@ func (r *CodexProxyRunner) syncAccounts(ctx context.Context) error {
 
 	accounts, err := r.client.Accounts(ctx)
 	if err != nil {
+		r.quotaMu.Lock()
+		for id, snapshot := range r.quotaSnapshots {
+			snapshot.Stale = true
+			r.quotaSnapshots[id] = snapshot
+		}
+		r.quotaMu.Unlock()
 		return fmt.Errorf("pull codex proxy account metadata: %w", err)
 	}
 	identities := make([]entities.UsageIdentity, 0, len(accounts))
 	now := time.Now()
+	snapshots := make(map[string]codexproxy.QuotaSnapshot, len(accounts))
 	for _, account := range accounts {
 		identities = append(identities, codexproxy.AccountUsageIdentity(account, now))
+		snapshots[account.AccountEntryID] = codexproxy.QuotaSnapshot{Quota: account.Quota, FetchedAt: account.QuotaFetchedAt, VerifyRequired: account.QuotaVerifyRequired, Status: account.Status}
 	}
 	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, r.db, identities, entities.UsageIdentityAuthTypeCodexProxy, now); err != nil {
 		return fmt.Errorf("sync codex proxy account identities: %w", err)
 	}
+	r.quotaMu.Lock()
+	r.quotaSnapshots = snapshots
+	r.quotaMu.Unlock()
 	r.accountSyncMu.Lock()
 	r.lastAccountSync = now
 	r.accountSyncMu.Unlock()
 	return nil
+}
+
+func (r *CodexProxyRunner) CodexQuota(accountEntryID string) (codexproxy.QuotaSnapshot, bool) {
+	r.quotaMu.RLock()
+	defer r.quotaMu.RUnlock()
+	snapshot, ok := r.quotaSnapshots[accountEntryID]
+	return snapshot, ok
 }
 
 func (r *CodexProxyRunner) LastError() error { r.mu.Lock(); defer r.mu.Unlock(); return r.lastErr }

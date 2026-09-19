@@ -49,16 +49,42 @@ type Page struct {
 const AccountMetadataSchema = "codex-proxy.keeper-account-metadata.v1"
 
 type AccountMetadata struct {
-	AccountEntryID string     `json:"account_entry_id"`
-	Email          string     `json:"email"`
-	Label          string     `json:"label"`
-	AccountID      string     `json:"account_id"`
-	OrganizationID string     `json:"organization_id"`
-	UserID         string     `json:"user_id"`
-	PlanType       string     `json:"plan_type"`
-	Status         string     `json:"status"`
-	AddedAt        time.Time  `json:"added_at"`
-	ExpiresAt      *time.Time `json:"expires_at"`
+	AccountEntryID      string         `json:"account_entry_id"`
+	Email               string         `json:"email"`
+	Label               string         `json:"label"`
+	AccountID           string         `json:"account_id"`
+	OrganizationID      string         `json:"organization_id"`
+	UserID              string         `json:"user_id"`
+	PlanType            string         `json:"plan_type"`
+	Status              string         `json:"status"`
+	AddedAt             time.Time      `json:"added_at"`
+	ExpiresAt           *time.Time     `json:"expires_at"`
+	Quota               *ObservedQuota `json:"quota"`
+	QuotaFetchedAt      *time.Time     `json:"quota_fetched_at"`
+	QuotaVerifyRequired *bool          `json:"quota_verify_required"`
+}
+
+// ObservedQuota is a read-only projection, never a Keeper quota estimate.
+type ObservedQuotaWindow struct {
+	UsedPercent      *float64 `json:"used_percent"`
+	RemainingPercent *float64 `json:"remaining_percent"`
+	ResetAt          *int64   `json:"reset_at"`
+	WindowSeconds    *int64   `json:"limit_window_seconds"`
+	LimitReached     *bool    `json:"limit_reached"`
+	Allowed          *bool    `json:"allowed"`
+}
+type ObservedQuota struct {
+	PlanType   string               `json:"plan_type"`
+	Primary    *ObservedQuotaWindow `json:"rate_limit"`
+	Secondary  *ObservedQuotaWindow `json:"secondary_rate_limit"`
+	CodeReview *ObservedQuotaWindow `json:"code_review_rate_limit"`
+}
+type QuotaSnapshot struct {
+	Quota          *ObservedQuota `json:"quota"`
+	FetchedAt      *time.Time     `json:"quota_fetched_at"`
+	VerifyRequired *bool          `json:"quota_verify_required"`
+	Status         string         `json:"status"`
+	Stale          bool           `json:"stale"`
 }
 
 type AccountsPage struct {
