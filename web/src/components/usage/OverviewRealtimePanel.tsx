@@ -21,7 +21,7 @@ import {
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import styles from '@/pages/UsagePage.module.scss';
 
-type RealtimeDimensionKey = 'models' | 'api_keys' | 'auth_files' | 'ai_providers';
+type RealtimeDimensionKey = 'models' | 'api_keys' | 'auth_files' | 'ai_providers' | 'codex_proxy_accounts';
 
 interface RealtimeDimension {
   key: RealtimeDimensionKey;
@@ -66,7 +66,7 @@ interface OverviewRealtimePanelProps {
 }
 
 const REALTIME_WINDOWS: OverviewRealtimeWindow[] = ['15m', '30m', '60m'];
-const DEFAULT_VISIBLE_DIMENSIONS: readonly RealtimeDimensionKey[] = ['models', 'api_keys', 'auth_files', 'ai_providers'];
+const DEFAULT_VISIBLE_DIMENSIONS: readonly RealtimeDimensionKey[] = ['models', 'api_keys', 'auth_files', 'ai_providers', 'codex_proxy_accounts'];
 const THROUGHPUT_Y_TICK_COUNT = 6;
 const THROUGHPUT_Y_INTERVAL_COUNT = THROUGHPUT_Y_TICK_COUNT - 1;
 const THROUGHPUT_LEGEND_BOTTOM_GAP = 10;
@@ -123,6 +123,7 @@ const emptyRealtime = (window: OverviewRealtimeWindow): OverviewRealtimeBlock =>
     api_keys: [],
     auth_files: [],
     ai_providers: [],
+    codex_proxy_accounts: [],
   },
   request_level: [],
   cache_level: [],
@@ -935,10 +936,11 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
       { key: 'api_keys', labelKey: 'usage_stats.overview_realtime_dimension_api_keys', items: data.current_usage.api_keys },
       { key: 'auth_files', labelKey: 'usage_stats.overview_realtime_dimension_auth_files', items: data.current_usage.auth_files },
       { key: 'ai_providers', labelKey: 'usage_stats.overview_realtime_dimension_ai_providers', items: data.current_usage.ai_providers },
+      { key: 'codex_proxy_accounts', labelKey: 'usage_stats.overview_realtime_dimension_codex_proxy_accounts', items: data.current_usage.codex_proxy_accounts ?? [] },
     ];
     const visible = new Set(visibleDimensions);
     return next.filter((dimension) => visible.has(dimension.key));
-  }, [data.current_usage.ai_providers, data.current_usage.api_keys, data.current_usage.auth_files, data.current_usage.models, visibleDimensions]);
+  }, [data.current_usage.ai_providers, data.current_usage.api_keys, data.current_usage.auth_files, data.current_usage.codex_proxy_accounts, data.current_usage.models, visibleDimensions]);
   const visibleDimension = dimensions.find((dimension) => dimension.key === activeDimension) ?? dimensions[0];
 
   return (

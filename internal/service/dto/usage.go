@@ -175,10 +175,11 @@ type RealtimeUsageTopItem struct {
 
 // RealtimeCurrentUsage 是 Overview 当前使用按维度聚合的 Top 列表。
 type RealtimeCurrentUsage struct {
-	Models      []RealtimeUsageTopItem
-	APIKeys     []RealtimeUsageTopItem
-	AuthFiles   []RealtimeUsageTopItem
-	AIProviders []RealtimeUsageTopItem
+	Models             []RealtimeUsageTopItem
+	APIKeys            []RealtimeUsageTopItem
+	AuthFiles          []RealtimeUsageTopItem
+	AIProviders        []RealtimeUsageTopItem
+	CodexProxyAccounts []RealtimeUsageTopItem
 }
 
 // RealtimeRequestLevelPoint 是 Overview 请求水平图的单个短窗口桶。

@@ -37,6 +37,7 @@ func (s *keyViewerAnalysisUsageStub) GetAnalysis(_ context.Context, filter servi
 		ModelComposition: []servicedto.AnalysisCompositionItem{{
 			Key: "claude-sonnet", TotalTokens: tokens, Requests: 1,
 		}},
+		CodexProxyComposition: []servicedto.AnalysisCompositionItem{{Key: "codex-private", Label: "Private Codex Account", TotalTokens: tokens}},
 		AuthFilesComposition: []servicedto.AnalysisCompositionItem{{
 			Key: "auth-file-private", Label: "Private Auth File", TotalTokens: tokens, Requests: 1,
 		}},
@@ -108,6 +109,7 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 	}
 	var analysisPayload struct {
 		APIKeyComposition     []struct{ Key, Label string } `json:"api_key_composition"`
+		CodexProxyComposition []json.RawMessage             `json:"codex_proxy_composition"`
 		AuthFilesComposition  []json.RawMessage             `json:"auth_files_composition"`
 		AIProviderComposition []json.RawMessage             `json:"ai_provider_composition"`
 		Heatmap               struct {
@@ -121,7 +123,7 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 	if len(analysisPayload.APIKeyComposition) != 1 || analysisPayload.APIKeyComposition[0].Key != "42" || analysisPayload.APIKeyComposition[0].Label != "Viewer Key" {
 		t.Fatalf("expected only the session key identity, got %+v", analysisPayload.APIKeyComposition)
 	}
-	if len(analysisPayload.AuthFilesComposition) != 0 || len(analysisPayload.AIProviderComposition) != 0 {
+	if len(analysisPayload.CodexProxyComposition) != 0 || len(analysisPayload.AuthFilesComposition) != 0 || len(analysisPayload.AIProviderComposition) != 0 {
 		t.Fatalf("expected source composition to be omitted, got auth=%s provider=%s", analysisPayload.AuthFilesComposition, analysisPayload.AIProviderComposition)
 	}
 	if len(analysisPayload.Heatmap.APIKeys) != 1 || analysisPayload.Heatmap.APIKeys[0] != "42" || analysisPayload.Heatmap.APIKeyLabels["42"] != "Viewer Key" {

@@ -229,6 +229,7 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 		// 来源身份属于管理员视图；Viewer JSON 在服务端直接清空，避免仅靠 UI 隐藏。
 		payload.AuthFilesComposition = []analysisCompositionItem{}
 		payload.AIProviderComposition = []analysisCompositionItem{}
+		payload.CodexProxyComposition = []analysisCompositionItem{}
 		c.JSON(http.StatusOK, payload)
 	})
 

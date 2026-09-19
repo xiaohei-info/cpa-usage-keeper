@@ -91,10 +91,11 @@ type RealtimeUsageTopItemRecord struct {
 
 // RealtimeCurrentUsageRecord 是 Overview 当前使用按维度聚合的 Top 列表。
 type RealtimeCurrentUsageRecord struct {
-	Models      []RealtimeUsageTopItemRecord
-	APIKeys     []RealtimeUsageTopItemRecord
-	AuthFiles   []RealtimeUsageTopItemRecord
-	AIProviders []RealtimeUsageTopItemRecord
+	Models             []RealtimeUsageTopItemRecord
+	APIKeys            []RealtimeUsageTopItemRecord
+	AuthFiles          []RealtimeUsageTopItemRecord
+	AIProviders        []RealtimeUsageTopItemRecord
+	CodexProxyAccounts []RealtimeUsageTopItemRecord
 }
 
 // UsageOverviewRealtimeRecord 是 Overview 页面实时图表区使用的数据块。

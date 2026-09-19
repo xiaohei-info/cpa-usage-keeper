@@ -39,6 +39,7 @@ const analysis: AnalysisResponse = {
   model_composition: [{ ...compositionItem, label: 'Model usage' }],
   auth_files_composition: [compositionItem],
   ai_provider_composition: [compositionItem],
+  codex_proxy_composition: [{ ...compositionItem, label: 'Codex Proxy usage' }],
   cost_breakdown: {
     uncached_input_cost_usd: 0,
     cache_read_cost_usd: 0,
@@ -61,6 +62,23 @@ describe('AnalysisPanel composition dimensions', () => {
     expect(markup).toContain('usage_stats.analysis_composition_model_tab');
     expect(markup).toContain('usage_stats.analysis_composition_auth_files_tab');
     expect(markup).toContain('usage_stats.analysis_composition_ai_provider_tab');
+    expect(markup).toContain('usage_stats.analysis_composition_codex_proxy_tab');
+  });
+
+  it('renders Codex Proxy composition when selected', () => {
+    const markup = renderToStaticMarkup(
+      <AnalysisPanel
+        analysis={analysis}
+        loading={false}
+        isDark={false}
+        isMobile={false}
+        compositionDimensions={['codex_proxy']}
+      />,
+    );
+
+    expect(markup).toContain('usage_stats.analysis_composition_codex_proxy_tab');
+    expect(markup).toContain('Codex Proxy usage');
+    expect(markup.match(/role="tab"/g)).toHaveLength(1);
   });
 
   it('shows the model dimension as selected immediately for the key viewer', () => {

@@ -452,10 +452,11 @@ func mapRealtimeResponseParticles(points []repodto.RealtimeResponseParticleRecor
 
 func mapRealtimeCurrentUsage(current repodto.RealtimeCurrentUsageRecord) servicedto.RealtimeCurrentUsage {
 	return servicedto.RealtimeCurrentUsage{
-		Models:      mapRealtimeUsageTopItems(current.Models),
-		APIKeys:     mapRealtimeUsageTopItems(current.APIKeys),
-		AuthFiles:   mapRealtimeUsageTopItems(current.AuthFiles),
-		AIProviders: mapRealtimeUsageTopItems(current.AIProviders),
+		Models:             mapRealtimeUsageTopItems(current.Models),
+		APIKeys:            mapRealtimeUsageTopItems(current.APIKeys),
+		AuthFiles:          mapRealtimeUsageTopItems(current.AuthFiles),
+		AIProviders:        mapRealtimeUsageTopItems(current.AIProviders),
+		CodexProxyAccounts: mapRealtimeUsageTopItems(current.CodexProxyAccounts),
 	}
 }
 
