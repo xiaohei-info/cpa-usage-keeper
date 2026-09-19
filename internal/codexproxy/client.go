@@ -17,25 +17,26 @@ type Usage struct {
 	ReasoningTokens int64 `json:"reasoning_tokens"`
 }
 type Event struct {
-	Schema          string    `json:"schema"`
-	EventID         string    `json:"event_id"`
-	EventType       string    `json:"event_type"`
-	OccurredAt      time.Time `json:"occurred_at"`
-	RequestID       string    `json:"request_id"`
-	AttemptID       string    `json:"attempt_id"`
-	AccountEntryID  string    `json:"account_entry_id"`
-	Provider        string    `json:"provider"`
-	Endpoint        string    `json:"endpoint"`
-	Model           string    `json:"model"`
-	ReasoningEffort string    `json:"reasoning_effort"`
-	StatusCode      *int      `json:"status_code"`
-	Failed          bool      `json:"failed"`
-	Fallback        bool      `json:"fallback"`
-	LatencyMS       *int64    `json:"latency_ms"`
-	TTFTMS          *int64    `json:"ttft_ms"`
-	Usage           *Usage    `json:"usage"`
-	ErrorCode       string    `json:"error_code"`
-	ErrorMessage    string    `json:"error_message"`
+	Schema              string    `json:"schema"`
+	EventID             string    `json:"event_id"`
+	EventType           string    `json:"event_type"`
+	OccurredAt          time.Time `json:"occurred_at"`
+	RequestID           string    `json:"request_id"`
+	AttemptID           string    `json:"attempt_id"`
+	AccountEntryID      string    `json:"account_entry_id"`
+	Provider            string    `json:"provider"`
+	Endpoint            string    `json:"endpoint"`
+	DownstreamTransport string    `json:"downstream_transport"`
+	Model               string    `json:"model"`
+	ReasoningEffort     string    `json:"reasoning_effort"`
+	StatusCode          *int      `json:"status_code"`
+	Failed              bool      `json:"failed"`
+	Fallback            bool      `json:"fallback"`
+	LatencyMS           *int64    `json:"latency_ms"`
+	TTFTMS              *int64    `json:"ttft_ms"`
+	Usage               *Usage    `json:"usage"`
+	ErrorCode           string    `json:"error_code"`
+	ErrorMessage        string    `json:"error_message"`
 }
 type Page struct {
 	Schema     string  `json:"schema"`

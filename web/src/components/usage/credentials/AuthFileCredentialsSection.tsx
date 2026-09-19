@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -91,6 +91,10 @@ const AUTO_REFRESH_SCHEDULE_UNITS: QuotaAutoRefreshScheduleUnit[] = ['minute', '
 const AUTO_REFRESH_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
 
 interface AuthFileCredentialsSectionProps {
+  readOnly?: boolean
+  title?: string
+  subtitle?: string
+  renderQuotaNotes?: (row: AuthFileCredentialRow) => ReactNode
   rows: AuthFileCredentialRow[]
   total: number
   page: number
@@ -123,7 +127,7 @@ interface AuthFileCredentialsSectionProps {
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction, readOnly = false, title, subtitle, renderQuotaNotes }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
@@ -196,8 +200,8 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
   return (
     <>
       <CredentialSectionShell
-        title={t('usage_stats.credentials_auth_files_title')}
-        subtitle={t('usage_stats.credentials_auth_files_subtitle')}
+        title={title ?? t('usage_stats.credentials_auth_files_title')}
+        subtitle={subtitle ?? t('usage_stats.credentials_auth_files_subtitle')}
         countLabel={t('usage_stats.credentials_count', { count: total })}
         titleExtra={(
           <div className={styles.credentialAuthFileTitleControls}>
@@ -211,7 +215,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
             <AuthFileDisplayModeSwitch mode={displayMode} onChange={setDisplayMode} />
           </div>
         )}
-        actions={(
+        actions={!readOnly && (
           <div className={styles.credentialSectionActionButtons}>
             <MainActionButton
               type="button"
@@ -270,14 +274,14 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
-                  readOnly={row.identity.is_deleted}
+                  readOnly={readOnly || row.identity.is_deleted}
                   onToggle={(disabled) => onToggleStatus?.(row.identity.id || row.identity.identity, row.identity.identity, disabled)}
                 />
               ) : (
                 <ProviderBrandIcon providerType={row.identity.type} size={30} ariaLabel={row.typeLabel} />
               )
             )}
-            title={onSaveAlias ? (
+            title={!readOnly && onSaveAlias ? (
               <CredentialAliasEditor
                 identityId={row.identity.id}
                 displayName={row.displayName}
@@ -287,7 +291,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 onOpenDetails={onOpenDetails ? () => onOpenDetails(row) : undefined}
                 onSaveAlias={onSaveAlias}
               />
-            ) : onOpenDetails ? (
+            ) : !readOnly && onOpenDetails ? (
               <button
                 type="button"
                 className={styles.credentialDetailNameButton}
@@ -350,8 +354,11 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
               <CredentialHealthPanel displayName={row.displayName} health={row.credentialHealth} lastUsedAt={row.identity.last_used_at} statsUpdatedAt={row.identity.stats_updated_at} windowCacheReadRate={row.windowCacheReadRate} />
             ) : (
               <div className={styles.credentialQuotaSideWithAction}>
-                <AuthFileQuotaPanel row={row} quotaUsageMode={quotaUsageMode} />
-                <div className={styles.credentialQuotaActionStack}>
+                <div>
+                  <AuthFileQuotaPanel row={row} quotaUsageMode={quotaUsageMode} />
+                  {renderQuotaNotes?.(row)}
+                </div>
+                {!readOnly && <div className={styles.credentialQuotaActionStack}>
                   {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
                   {resetCredits > 0 && (
                     <QuotaResetAction
@@ -372,14 +379,14 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                   >
                     {rowRefreshing ? <LoadingSpinner size={13} /> : <IconRefreshCw size={13} />}
                   </button>
-                </div>
+                </div>}
               </div>
             )}
           />
         )
       })}
       <CredentialsPagination
-        leadingControls={showHealthMode ? undefined : <QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
+        leadingControls={readOnly || showHealthMode ? undefined : <QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
         page={page}
         total={total}
         totalPages={totalPages}

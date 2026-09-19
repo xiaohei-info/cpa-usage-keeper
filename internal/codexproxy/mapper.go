@@ -5,6 +5,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service/tokenprocessor"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -34,7 +35,14 @@ func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
 	if total == 0 {
 		total = in + out + reason
 	}
-	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: e.Provider, Provider: e.Provider, Endpoint: e.Endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, ReasoningEffort: e.ReasoningEffort, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total}, nil
+	// Keeper's existing request column recognizes SSE through the POST prefix.
+	// Only annotate bare paths with an explicit producer observation; preserve
+	// legacy/unknown transports and already-qualified endpoints verbatim.
+	endpoint := e.Endpoint
+	if e.DownstreamTransport == "sse" && strings.HasPrefix(endpoint, "/") {
+		endpoint = "POST " + endpoint
+	}
+	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: e.Provider, Provider: e.Provider, Endpoint: endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, ReasoningEffort: e.ReasoningEffort, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total}, nil
 }
 func boolPtr(v bool) *bool { return &v }
 func valueInt64(v *int64) int64 {

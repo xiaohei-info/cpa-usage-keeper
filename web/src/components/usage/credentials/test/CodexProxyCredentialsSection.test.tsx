@@ -42,7 +42,7 @@ describe('Codex read-only observations', () => {
     const root = createRoot(node)
     try {
       await act(async () => root.render(<CodexProxyCredentialsSection enabled />))
-      expect(fetchUsageIdentitiesPage).toHaveBeenCalledWith(expect.any(AbortSignal), { authType: 3, page: 1, pageSize: 10 })
+      expect(fetchUsageIdentitiesPage).toHaveBeenCalledWith(expect.any(AbortSignal), { authType: 3, page: 1, pageSize: 10, activeOnly: false, sort: 'last_used_at' })
       expect(node.querySelectorAll('button')).toHaveLength(0)
       await act(async () => root.render(<CodexProxyCredentialsSection enabled={false} />))
       await act(async () => vi.advanceTimersByTime(120_000))
