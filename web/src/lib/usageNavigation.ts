@@ -7,6 +7,7 @@ export const USAGE_TAB_OPTIONS = [
   'auth-files',
   'ai-provider',
   'settings',
+  'turn-state',
 ] as const;
 
 export type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
@@ -21,6 +22,7 @@ const USAGE_TAB_PATHS: Record<UsageTab, string> = {
   'auth-files': '/auth-files',
   'ai-provider': '/ai-provider',
   settings: '/settings',
+  'turn-state': '/turn-state',
 };
 
 const USAGE_PATH_TABS = new Map<string, UsageTab>(

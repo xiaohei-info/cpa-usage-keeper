@@ -1,0 +1,6 @@
+.panel { display: grid; gap: 1rem; min-width: 0; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; margin: .75rem 0;
+  dt { opacity: .7; font-size: .85em; }
+  dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+}
+.entry { border-top: 1px solid var(--border-color, #8884); padding: .75rem 0; }
