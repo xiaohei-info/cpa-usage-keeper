@@ -83,5 +83,6 @@ export function CodexProxyAccount({ row }: { row: UsageIdentity }) {
     {snapshot?.stale && <p role="status">{t('codex_accounts.stale')}</p>}
     <p>{t('codex_accounts.fetched')}: {date(snapshot?.quota_fetched_at)}</p>
     <p>{t('codex_accounts.verify')}: {snapshot?.quota_verify_required == null ? unknown : t(snapshot.quota_verify_required ? 'codex_accounts.yes' : 'codex_accounts.no')}</p>
+    <p>{t('usage_stats.credentials_quota_available_resets')}: {snapshot?.quota?.reset_credits_available ?? unknown}</p>
   </div>
 }

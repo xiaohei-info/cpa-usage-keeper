@@ -75,10 +75,11 @@ type ObservedQuotaWindow struct {
 	Allowed          *bool    `json:"allowed"`
 }
 type ObservedQuota struct {
-	PlanType   string               `json:"plan_type"`
-	Primary    *ObservedQuotaWindow `json:"rate_limit"`
-	Secondary  *ObservedQuotaWindow `json:"secondary_rate_limit"`
-	CodeReview *ObservedQuotaWindow `json:"code_review_rate_limit"`
+	ResetCreditsAvailable *int                 `json:"reset_credits_available"`
+	PlanType              string               `json:"plan_type"`
+	Primary               *ObservedQuotaWindow `json:"rate_limit"`
+	Secondary             *ObservedQuotaWindow `json:"secondary_rate_limit"`
+	CodeReview            *ObservedQuotaWindow `json:"code_review_rate_limit"`
 }
 type QuotaSnapshot struct {
 	Quota          *ObservedQuota `json:"quota"`

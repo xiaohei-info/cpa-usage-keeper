@@ -14,15 +14,24 @@ vi.mock('../CredentialHealthPanel', () => ({ CredentialHealthPanel: () => <div>r
 const row = {
   id: '3', identity: 'entry-3', type: 'codex-proxy-account', name: 'Codex account', auth_type: 3,
   codex_quota: { status: 'active', stale: true, quota_fetched_at: '2026-09-19T00:00:00Z', quota_verify_required: false,
-    quota: { plan_type: 'pro', rate_limit: { used_percent: 0, remaining_percent: 100, reset_at: null, limit_window_seconds: 604800 }, secondary_rate_limit: null, code_review_rate_limit: null } },
+    quota: { plan_type: 'pro', reset_credits_available: 2, rate_limit: { used_percent: 0, remaining_percent: 100, reset_at: null, limit_window_seconds: 604800 }, secondary_rate_limit: null, code_review_rate_limit: null } },
 } as UsageIdentity
 
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks() })
 describe('Codex read-only observations', () => {
+  it.each([2, 0, null, undefined])('renders reset credits %s without enabling mutations', count => {
+    const snapshot = row.codex_quota!
+    const html = renderToStaticMarkup(<CodexProxyAccount row={{ ...row, codex_quota: {
+      ...snapshot, quota: { ...snapshot.quota!, reset_credits_available: count },
+    } }} />)
+    expect(html).toContain(`usage_stats.credentials_quota_available_resets: ${count ?? 'codex_accounts.unknown'}</p>`)
+    expect(html).not.toContain('<button')
+  })
   it('preserves observed zero, unknown reset, stale and request-health independently; offers no mutation', () => {
     const html = renderToStaticMarkup(<CodexProxyAccount row={row} />)
     expect(html).toContain('codex_accounts.stale')
     expect(html).toContain('codex_accounts.no')
+    expect(html).toContain('2')
     expect(html).not.toContain('<button')
     expect(html).not.toContain('refresh')
   })
@@ -43,6 +52,8 @@ describe('Codex read-only observations', () => {
       expect(node.querySelector(`.${styles.authFileCredentialRow}`)).not.toBeNull()
       expect(node.querySelector(`.${styles.credentialTableHeader}`)).not.toBeNull()
       expect(node.textContent).toContain('0%')
+      expect(node.textContent).toContain('usage_stats.credentials_quota_available_resets: 2')
+      expect(node.querySelector(`.${styles.credentialQuotaResetCount}`)).toBeNull()
       expect(node.querySelector(`.${styles.credentialRowRefreshButton}`)).toBeNull()
       expect(node.querySelector(`.${styles.credentialInspectionButton}`)).toBeNull()
       expect(node.querySelector('[data-credential-detail-trigger]')).toBeNull()

@@ -446,6 +446,7 @@ export interface CodexQuotaSnapshot {
   quota_verify_required: boolean | null
   quota: {
     plan_type: string
+    reset_credits_available?: number | null
     rate_limit: CodexObservedQuotaWindow | null
     secondary_rate_limit: CodexObservedQuotaWindow | null
     code_review_rate_limit: CodexObservedQuotaWindow | null
