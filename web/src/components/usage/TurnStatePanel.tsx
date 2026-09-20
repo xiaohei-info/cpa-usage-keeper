@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchTurnStateOverview } from '@/lib/api';
-import type { TurnStateOverview, TurnStateSummary } from '@/lib/turnState';
+import type { TurnStateEvent, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
 import { Card } from '@/components/ui/Card';
 import styles from './TurnStatePanel.module.scss';
+
+const dateTime = (value: string | null, unknown: string): string => {
+  if (!value) return unknown;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? unknown : date.toLocaleString();
+};
 
 export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?: number; onAuthRequired?: () => void }) {
   const { t } = useTranslation();
@@ -26,10 +32,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         const data = await fetchTurnStateOverview(current.signal);
         if (!disposed && !document.hidden) { setSnapshot(data); setFetched(new Date().toISOString()); setFailed(false); setNow(Date.now()); }
       } catch (error) {
-        if (!disposed && !document.hidden) {
-          setFailed(true);
-          if (error instanceof ApiError && error.status === 401) auth.current?.();
-        }
+        if (!disposed && !document.hidden) { setFailed(true); if (error instanceof ApiError && error.status === 401) auth.current?.(); }
       } finally { window.clearTimeout(timeout); controller = null; }
     };
     refresh.current = () => { void load(); };
@@ -40,34 +43,71 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
     return () => { disposed = true; controller?.abort(); window.clearInterval(interval); document.removeEventListener('visibilitychange', visibility); refresh.current = () => {}; };
   }, []);
   useEffect(() => { refresh.current(); }, [refreshKey]);
+
   const unknown = t('turn_state.unknown');
-  const value = (v: unknown): string => v == null ? unknown : typeof v === 'boolean' ? t(v ? 'turn_state.yes' : 'turn_state.no') : String(v);
-  const fields = (data: object) => <dl className={styles.fields}>{Object.entries(data).map(([key, v]) => <div key={key}><dt>{t(`turn_state.${key}`)}</dt><dd>{value(v)}</dd></div>)}</dl>;
-  const state = (data: TurnStateSummary | null) => data ? <>{fields(data)}<p>{t('turn_state.remaining')}: {Math.max(0, Math.floor((Date.parse(data.expires_at) - now) / 1000))} {t('turn_state.seconds')}</p></> : <p>{unknown}</p>;
+  const formatCount = (value: number) => value.toLocaleString();
+  const formatDate = (value: string | null) => dateTime(value, t('turn_state.not_available'));
+  const remaining = (state: TurnStateSummary | null) => state ? Math.max(0, Math.floor((Date.parse(state.expires_at) - now) / 1000)) : 0;
+  const statusText = (session: TurnStateSession) => {
+    if (session.phase === 'paused') return t('turn_state.status_paused');
+    if (session.active?.usable) return t('turn_state.status_ready');
+    if (session.phase === 'collecting') return t('turn_state.status_collecting');
+    if (session.phase === 'expired') return t('turn_state.status_expired');
+    return t('turn_state.status_not_ready');
+  };
+  const statusClass = (session: TurnStateSession) => session.active?.usable ? styles.good : styles.muted;
+  const sessionLabel = (session: TurnStateSession) => session.account_label || session.entry_id.slice(0, 12);
+  const eventSentence = (event: TurnStateEvent) => {
+    if (event.result === 'ws_connection_reused') return t('turn_state.event_ws_skipped', { model: event.model ?? unknown });
+    if (event.result === 'accepted') return event.source === 'active' ? t('turn_state.event_probe_success') : t('turn_state.event_passive_success');
+    if (event.result === 'dispatched') return t('turn_state.event_probe_started');
+    if (event.result === 'shape_mismatch') return t('turn_state.event_shape_mismatch');
+    if (event.result === 'budget_exhausted') return t('turn_state.event_budget_exhausted');
+    return t('turn_state.event_generic', { result: event.result });
+  };
   const stale = snapshot && (failed || now - Date.parse(snapshot.server_time) > 90_000 || (fetched && now - Date.parse(fetched) > 90_000));
+
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
     <Card title={t('turn_state.title')}>
-      <p>{t('turn_state.read_only')}</p><p>{t('turn_state.settings_guidance')}</p><p>{t('turn_state.billing')}</p>
-      <p role="status">{!snapshot ? t(failed ? 'turn_state.unavailable' : 'common.loading') : stale ? t('turn_state.stale') : t('turn_state.current')}</p>
-      {snapshot && fields({ fetched_at: fetched, server_time: snapshot.server_time, epoch: snapshot.epoch })}
+      <p className={styles.intro}>{t('turn_state.read_only')}</p>
+      <p className={styles.intro}>{t('turn_state.settings_guidance')}</p>
+      <p className={styles.intro}>{t('turn_state.billing')}</p>
+      <p role="status" className={stale ? styles.warning : styles.snapshotStatus}>{!snapshot ? t(failed ? 'turn_state.unavailable' : 'common.loading') : stale ? t('turn_state.stale') : t('turn_state.current')}</p>
+      {snapshot && <p className={styles.updated}>{t('turn_state.fetched_at')}: {dateTime(fetched, unknown)}</p>}
     </Card>
     {snapshot && <>
-      <Card title={t('turn_state.config')}>{fields(snapshot.config)}</Card>
-      <Card title={t('turn_state.counters')} subtitle={t('turn_state.since_restart')}>{fields(snapshot.summary)}</Card>
-      <Card title={t('turn_state.sessions')} subtitle={t('turn_state.bounded')}>
+      <div className={styles.overviewGrid}>
+        <Card title={t('turn_state.overview_ready')}><strong className={styles.metric}>{formatCount(snapshot.summary.usable)}</strong><p>{t('turn_state.overview_ready_help')}</p></Card>
+        <Card title={t('turn_state.overview_injected')}><strong className={styles.metric}>{formatCount(snapshot.summary.injection_count)}</strong><p>{snapshot.summary.injection_count ? t('turn_state.overview_injected_help') : t('turn_state.overview_not_yet')}</p></Card>
+        <Card title={t('turn_state.overview_observed')}><strong className={styles.metric}>{formatCount(snapshot.summary.passive_observations)}</strong><p>{t('turn_state.overview_observed_help')}</p></Card>
+        <Card title={t('turn_state.overview_probes')}><strong className={styles.metric}>{formatCount(snapshot.summary.active_probes)}</strong><p>{t('turn_state.overview_probe_help', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p></Card>
+      </div>
+      <Card title={t('turn_state.config')} subtitle={t('turn_state.config_help')}>
+        <dl className={styles.fields}>
+          <div><dt>{t('turn_state.experiment_status')}</dt><dd>{snapshot.config.enabled && snapshot.config.mode !== 'off' ? t('turn_state.enabled') : t('turn_state.disabled')}</dd></div>
+          <div><dt>{t('turn_state.capture_status')}</dt><dd>{snapshot.config.passive_enabled ? t('turn_state.enabled') : t('turn_state.disabled')}</dd></div>
+          <div><dt>{t('turn_state.probe_status')}</dt><dd>{snapshot.config.active_enabled ? t('turn_state.enabled') : t('turn_state.disabled')}</dd></div>
+          <div><dt>{t('turn_state.injection_mode')}</dt><dd>{t(`turn_state.mode_${snapshot.config.mode}`)}</dd></div>
+          <div><dt>{t('turn_state.ttl')}</dt><dd>{Math.floor(snapshot.config.ttl_seconds / 60)} {t('turn_state.minutes')}</dd></div>
+        </dl>
+      </Card>
+      <Card title={t('turn_state.sessions')} subtitle={t('turn_state.session_help')}>
         {!snapshot.sessions.length && <p>{t('turn_state.empty')}</p>}
         {snapshot.sessions.map((session, index) => <article key={`${session.entry_id}:${session.model}:${index}`} className={styles.entry}>
-          <h4>{session.account_label ?? session.entry_id} · {session.model}</h4>
-          {fields(Object.fromEntries(Object.entries(session).filter(([key]) => key !== 'active' && key !== 'ready')))}
-          <h5>{t('turn_state.active')}</h5>{state(session.active)}<h5>{t('turn_state.ready')}</h5>{state(session.ready)}
+          <div className={styles.sessionHeader}><div><h4>{sessionLabel(session)} · {session.model}</h4><p className={styles.subtle}>{t('turn_state.account_rule')}: {session.account_mode}</p></div><span className={`${styles.badge} ${statusClass(session)}`}>{statusText(session)}</span></div>
+          <dl className={styles.fields}>
+            <div><dt>{t('turn_state.current_state')}</dt><dd>{session.active?.usable ? t('turn_state.state_ready') : t('turn_state.state_unavailable')}</dd></div>
+            {session.active && <><div><dt>{t('turn_state.shape')}</dt><dd>{session.active.length} {t('turn_state.characters')} / {session.active.blocks} {t('turn_state.blocks_short')}</dd></div><div><dt>{t('turn_state.remaining_ttl')}</dt><dd>{Math.floor(remaining(session.active) / 60)} {t('turn_state.minutes')}</dd></div></>}
+            <div><dt>{t('turn_state.last_observation')}</dt><dd>{formatDate(session.last_observed_at)}</dd></div>
+            <div><dt>{t('turn_state.last_injection')}</dt><dd>{formatDate(session.last_injected_at)}</dd></div>
+            <div><dt>{t('turn_state.backup_state')}</dt><dd>{session.ready?.usable ? t('turn_state.available') : t('turn_state.none')}</dd></div>
+          </dl>
+          <details><summary>{t('turn_state.technical_details')}</summary><dl className={styles.fields}><div><dt>{t('turn_state.entry_id')}</dt><dd>{session.entry_id}</dd></div><div><dt>{t('turn_state.fingerprint')}</dt><dd>{session.active?.fingerprint ?? unknown}</dd></div><div><dt>{t('turn_state.diagnostic')}</dt><dd>{session.diagnostic ?? t('turn_state.none')}</dd></div></dl></details>
         </article>)}
       </Card>
-      <Card title={t('turn_state.events')} subtitle={t('turn_state.bounded')}>
+      <Card title={t('turn_state.events')} subtitle={t('turn_state.event_help')}>
         {!snapshot.events.length && <p>{t('turn_state.empty')}</p>}
-        {snapshot.events.map((event, index) => <article key={`${event.id}:${index}`} className={styles.entry}>
-          {fields(Object.fromEntries(Object.entries(event).filter(([key]) => key !== 'usage')))}
-          <h5>{t('turn_state.usage')}</h5>{event.usage ? fields(event.usage) : <p>{unknown}</p>}
-        </article>)}
+        {snapshot.events.map((event, index) => <article key={`${event.id}:${index}`} className={styles.event}><div className={styles.eventMain}><time>{dateTime(event.at, unknown)}</time><span>{eventSentence(event)}</span></div><details><summary>{t('turn_state.technical_details')}</summary><dl className={styles.fields}><div><dt>{t('turn_state.model')}</dt><dd>{event.model ?? unknown}</dd></div>{event.length != null && <div><dt>{t('turn_state.shape')}</dt><dd>{event.length} {t('turn_state.characters')} / {event.blocks} {t('turn_state.blocks_short')}</dd></div>}{event.usage && <div><dt>{t('turn_state.probe_usage')}</dt><dd>{event.usage.input_tokens ?? unknown} / {event.usage.output_tokens ?? unknown} {t('turn_state.tokens')}</dd></div>}</dl></details></article>)}
       </Card>
     </>}
   </section>;
