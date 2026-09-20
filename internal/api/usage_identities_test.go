@@ -341,6 +341,9 @@ func TestUsageIdentitiesPageRouteReturnsCredentialHealthSnapshot(t *testing.T) {
 			SuccessRate:     66.6666666667,
 			InputTokens:     400,
 			CacheReadTokens: 250,
+			// 上游模型一致率样本随健康快照一起返回；0 样本时前端显示不可用。
+			UpstreamModelMatchTotal:   3,
+			UpstreamModelMatchMatched: 2,
 			Buckets: []service.UsageCredentialHealthBucket{{
 				StartTime: bucketStart,
 				EndTime:   bucketStart.Add(10 * time.Minute),
@@ -370,6 +373,8 @@ func TestUsageIdentitiesPageRouteReturnsCredentialHealthSnapshot(t *testing.T) {
 		`"success_rate":66.6666666667`,
 		`"input_tokens":400`,
 		`"cache_read_tokens":250`,
+		`"upstream_model_match_total":3`,
+		`"upstream_model_match_matched":2`,
 		`"buckets":[{"start_time":"2026-06-15T12:40:00Z","end_time":"2026-06-15T12:50:00Z","success":2,"failure":1,"rate":0.6666666667}]`,
 	} {
 		if !contains(body, expected) {

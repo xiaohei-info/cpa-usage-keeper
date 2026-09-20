@@ -29,14 +29,20 @@ type Event struct {
 	DownstreamTransport string    `json:"downstream_transport"`
 	Model               string    `json:"model"`
 	ReasoningEffort     string    `json:"reasoning_effort"`
-	StatusCode          *int      `json:"status_code"`
-	Failed              bool      `json:"failed"`
-	Fallback            bool      `json:"fallback"`
-	LatencyMS           *int64    `json:"latency_ms"`
-	TTFTMS              *int64    `json:"ttft_ms"`
-	Usage               *Usage    `json:"usage"`
-	ErrorCode           string    `json:"error_code"`
-	ErrorMessage        string    `json:"error_message"`
+	// 以下可观测性字段全为可选；缺失与 null 等价，都表示未观察到。
+	UpstreamModel            *string `json:"upstream_model"`
+	StateCheck               *string `json:"state_check"`
+	StateCheckReason         *string `json:"state_check_reason"`
+	StateCheckObservedBlocks *int64  `json:"state_check_observed_blocks"`
+	StateCheckExpectedBlocks *int64  `json:"state_check_expected_blocks"`
+	StatusCode               *int    `json:"status_code"`
+	Failed                   bool    `json:"failed"`
+	Fallback                 bool    `json:"fallback"`
+	LatencyMS                *int64  `json:"latency_ms"`
+	TTFTMS                   *int64  `json:"ttft_ms"`
+	Usage                    *Usage  `json:"usage"`
+	ErrorCode                string  `json:"error_code"`
+	ErrorMessage             string  `json:"error_message"`
 }
 type Page struct {
 	Schema     string  `json:"schema"`

@@ -337,7 +337,8 @@ func insertGeneratedEvents(ctx context.Context, sqlDB *sql.DB, options GenerateO
 		if err != nil {
 			return fmt.Errorf("begin benchmark event batch: %w", err)
 		}
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", 33), ",")
+		// 占位符数量从列契约派生，新增可观测性列时不再需要手改魔法数字。
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", strings.Count(usageEventInsertColumns, ",")+1), ",")
 		statement, err := tx.PrepareContext(ctx, "INSERT INTO usage_events ("+usageEventInsertColumns+") VALUES ("+placeholders+")")
 		if err != nil {
 			tx.Rollback()
@@ -517,7 +518,10 @@ func eventInsertArgs(event generatedEvent) []any {
 		event.ID, event.EventKey, event.APIGroupKey, event.Provider, event.Endpoint, event.AuthType, event.RequestID,
 		"", "",
 		nil, nil, nil, event.Model, event.ModelAlias, event.ReasoningEffort, event.ServiceTier, event.ResponseServiceTier,
-		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, true, event.LatencyMS, event.TTFTMS,
+		event.ExecutorType,
+		// 基准数据不模拟 Codex turn-state 观测，五个新列固定为空串/NULL。
+		"", "", "", nil, nil,
+		timestamp, event.Source, event.AuthIndex, event.Failed, true, event.LatencyMS, event.TTFTMS,
 		event.InputTokens, event.OutputTokens, event.ReasoningTokens, event.CachedTokens, event.CacheReadTokens,
 		event.CacheCreationTokens, event.TotalTokens, timestamp,
 	}

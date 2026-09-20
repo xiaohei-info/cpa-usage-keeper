@@ -27,7 +27,13 @@ type UsageEventRecord struct {
 	ReasoningEffort     string
 	ServiceTier         string
 	ResponseServiceTier string
-	ClientIP            *string
+	// UpstreamModel/StateCheck 空值表示上游未上报，前端必须显示为未观察到。
+	UpstreamModel            string
+	StateCheck               string
+	StateCheckReason         string
+	StateCheckObservedBlocks *int64
+	StateCheckExpectedBlocks *int64
+	ClientIP                 *string
 	XForwardedFor       *string
 	UserAgent           *string
 	ExecutorType        string

@@ -42,7 +42,10 @@ type UsageCredentialHealthSnapshot struct {
 	// 窗口内 canonical token 合计；缓存率由展示层按终身口径的同一公式派生。
 	InputTokens     int64
 	CacheReadTokens int64
-	Buckets         []UsageCredentialHealthBucket
+	// 上游模型一致率样本；Total=0 表示窗口内没有带 upstream_model 的事件。
+	UpstreamModelMatchTotal   int64
+	UpstreamModelMatchMatched int64
+	Buckets                   []UsageCredentialHealthBucket
 }
 
 type ListUsageIdentitiesResponse struct {
@@ -240,15 +243,17 @@ func mapUsageCredentialHealthSnapshot(snapshot repository.CredentialHealthSnapsh
 		})
 	}
 	return UsageCredentialHealthSnapshot{
-		WindowSeconds:   snapshot.WindowSeconds,
-		BucketSeconds:   snapshot.BucketSeconds,
-		WindowStart:     snapshot.WindowStart,
-		WindowEnd:       snapshot.WindowEnd,
-		TotalSuccess:    snapshot.TotalSuccess,
-		TotalFailure:    snapshot.TotalFailure,
-		SuccessRate:     snapshot.SuccessRate,
-		InputTokens:     snapshot.InputTokens,
-		CacheReadTokens: snapshot.CacheReadTokens,
-		Buckets:         buckets,
+		WindowSeconds:             snapshot.WindowSeconds,
+		BucketSeconds:             snapshot.BucketSeconds,
+		WindowStart:               snapshot.WindowStart,
+		WindowEnd:                 snapshot.WindowEnd,
+		TotalSuccess:              snapshot.TotalSuccess,
+		TotalFailure:              snapshot.TotalFailure,
+		SuccessRate:               snapshot.SuccessRate,
+		InputTokens:               snapshot.InputTokens,
+		CacheReadTokens:           snapshot.CacheReadTokens,
+		UpstreamModelMatchTotal:   snapshot.UpstreamModelMatch.Total,
+		UpstreamModelMatchMatched: snapshot.UpstreamModelMatch.Matched,
+		Buckets:                   buckets,
 	}
 }

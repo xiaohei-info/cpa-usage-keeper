@@ -42,8 +42,17 @@ func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
 	if e.DownstreamTransport == "sse" && strings.HasPrefix(endpoint, "/") {
 		endpoint = "POST " + endpoint
 	}
-	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: e.Provider, Provider: e.Provider, Endpoint: endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, ReasoningEffort: e.ReasoningEffort, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total}, nil
+	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: e.Provider, Provider: e.Provider, Endpoint: endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, ReasoningEffort: e.ReasoningEffort, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total, UpstreamModel: optionalString(e.UpstreamModel), StateCheck: optionalString(e.StateCheck), StateCheckReason: optionalString(e.StateCheckReason), StateCheckObservedBlocks: e.StateCheckObservedBlocks, StateCheckExpectedBlocks: e.StateCheckExpectedBlocks}, nil
 }
+
+// optionalString 把可空观测字段折叠为空串；空值含义是“未观察到”，不是一致或正常。
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 func boolPtr(v bool) *bool { return &v }
 func valueInt64(v *int64) int64 {
 	if v == nil {

@@ -42,33 +42,39 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID                  string                 `json:"id,omitempty"`
-	Timestamp           string                 `json:"timestamp"`
-	APIKey              string                 `json:"api_key,omitempty"`
-	Model               string                 `json:"model"`
-	ModelAlias          string                 `json:"model_alias,omitempty"`
-	ReasoningEffort     string                 `json:"reasoning_effort,omitempty"`
-	ServiceTier         string                 `json:"service_tier,omitempty"`
-	ResponseServiceTier string                 `json:"response_service_tier,omitempty"`
-	ClientIP            *string                `json:"client_ip"`
-	XForwardedFor       *string                `json:"x_forwarded_for"`
-	UserAgent           *string                `json:"user_agent"`
-	ExecutorType        string                 `json:"executor_type,omitempty"`
-	Endpoint            string                 `json:"endpoint,omitempty"`
-	Source              string                 `json:"source"`
-	SourceRaw           string                 `json:"source_raw,omitempty"`
-	SourceType          string                 `json:"source_type,omitempty"`
-	AuthIndex           string                 `json:"auth_index,omitempty"`
-	RequestID           string                 `json:"request_id,omitempty"`
-	IsDelete            bool                   `json:"isDelete,omitempty"`
-	Failed              bool                   `json:"failed"`
-	LatencyMS           int64                  `json:"latency_ms"`
-	TTFTMS              *int64                 `json:"ttft_ms,omitempty"`
-	SpeedTPS            *float64               `json:"speed_tps,omitempty"`
-	Tokens              usageEventTokenPayload `json:"tokens"`
-	CostUSD             float64                `json:"cost_usd"`
-	CostAvailable       bool                   `json:"cost_available"`
-	PricingStyle        string                 `json:"pricing_style,omitempty"`
+	ID                  string `json:"id,omitempty"`
+	Timestamp           string `json:"timestamp"`
+	APIKey              string `json:"api_key,omitempty"`
+	Model               string `json:"model"`
+	ModelAlias          string `json:"model_alias,omitempty"`
+	ReasoningEffort     string `json:"reasoning_effort,omitempty"`
+	ServiceTier         string `json:"service_tier,omitempty"`
+	ResponseServiceTier string `json:"response_service_tier,omitempty"`
+	// UpstreamModel/StateCheck 空值表示上游未上报；前端按“未观察到”渲染，不能当作一致/正常。
+	UpstreamModel            string                 `json:"upstream_model,omitempty"`
+	StateCheck               string                 `json:"state_check,omitempty"`
+	StateCheckReason         string                 `json:"state_check_reason,omitempty"`
+	StateCheckObservedBlocks *int64                 `json:"state_check_observed_blocks,omitempty"`
+	StateCheckExpectedBlocks *int64                 `json:"state_check_expected_blocks,omitempty"`
+	ClientIP                 *string                `json:"client_ip"`
+	XForwardedFor            *string                `json:"x_forwarded_for"`
+	UserAgent                *string                `json:"user_agent"`
+	ExecutorType             string                 `json:"executor_type,omitempty"`
+	Endpoint                 string                 `json:"endpoint,omitempty"`
+	Source                   string                 `json:"source"`
+	SourceRaw                string                 `json:"source_raw,omitempty"`
+	SourceType               string                 `json:"source_type,omitempty"`
+	AuthIndex                string                 `json:"auth_index,omitempty"`
+	RequestID                string                 `json:"request_id,omitempty"`
+	IsDelete                 bool                   `json:"isDelete,omitempty"`
+	Failed                   bool                   `json:"failed"`
+	LatencyMS                int64                  `json:"latency_ms"`
+	TTFTMS                   *int64                 `json:"ttft_ms,omitempty"`
+	SpeedTPS                 *float64               `json:"speed_tps,omitempty"`
+	Tokens                   usageEventTokenPayload `json:"tokens"`
+	CostUSD                  float64                `json:"cost_usd"`
+	CostAvailable            bool                   `json:"cost_available"`
+	PricingStyle             string                 `json:"pricing_style,omitempty"`
 }
 
 type usageEventTokenPayload struct {
@@ -101,36 +107,42 @@ type usageEventRequestLogDownloadTokenPayload struct {
 }
 
 type usageEventExportPayload struct {
-	ID                  string   `json:"id"`
-	Timestamp           string   `json:"timestamp"`
-	APIKey              string   `json:"api_key"`
-	CPAAPIKeyID         string   `json:"cpa_api_key_id"`
-	Source              string   `json:"source"`
-	SourceType          string   `json:"source_type"`
-	AuthIndex           string   `json:"auth_index"`
-	IsIdentityDeleted   bool     `json:"is_identity_deleted"`
-	Model               string   `json:"model"`
-	ModelAlias          string   `json:"model_alias"`
-	ReasoningEffort     string   `json:"reasoning_effort"`
-	ServiceTier         string   `json:"service_tier"`
-	ResponseServiceTier string   `json:"response_service_tier"`
-	ClientIP            *string  `json:"client_ip"`
-	XForwardedFor       *string  `json:"x_forwarded_for"`
-	UserAgent           *string  `json:"user_agent"`
-	ExecutorType        string   `json:"executor_type"`
-	Result              string   `json:"result"`
-	Endpoint            string   `json:"endpoint"`
-	TTFTMS              *int64   `json:"ttft_ms"`
-	LatencyMS           int64    `json:"latency_ms"`
-	SpeedTPS            *float64 `json:"speed_tps"`
-	InputTokens         int64    `json:"input_tokens"`
-	OutputTokens        int64    `json:"output_tokens"`
-	ReasoningTokens     int64    `json:"reasoning_tokens"`
-	CacheReadTokens     int64    `json:"cache_read_tokens"`
-	CacheCreationTokens int64    `json:"cache_creation_tokens"`
-	CacheReadRate       *float64 `json:"cache_read_rate"`
-	TotalTokens         int64    `json:"total_tokens"`
-	CostUSD             float64  `json:"cost_usd"`
+	ID                  string `json:"id"`
+	Timestamp           string `json:"timestamp"`
+	APIKey              string `json:"api_key"`
+	CPAAPIKeyID         string `json:"cpa_api_key_id"`
+	Source              string `json:"source"`
+	SourceType          string `json:"source_type"`
+	AuthIndex           string `json:"auth_index"`
+	IsIdentityDeleted   bool   `json:"is_identity_deleted"`
+	Model               string `json:"model"`
+	ModelAlias          string `json:"model_alias"`
+	ReasoningEffort     string `json:"reasoning_effort"`
+	ServiceTier         string `json:"service_tier"`
+	ResponseServiceTier string `json:"response_service_tier"`
+	// UpstreamModel/StateCheck 空值表示上游未上报，导出保留空值而不是填充推测值。
+	UpstreamModel            string   `json:"upstream_model"`
+	StateCheck               string   `json:"state_check"`
+	StateCheckReason         string   `json:"state_check_reason"`
+	StateCheckObservedBlocks *int64   `json:"state_check_observed_blocks"`
+	StateCheckExpectedBlocks *int64   `json:"state_check_expected_blocks"`
+	ClientIP                 *string  `json:"client_ip"`
+	XForwardedFor            *string  `json:"x_forwarded_for"`
+	UserAgent                *string  `json:"user_agent"`
+	ExecutorType             string   `json:"executor_type"`
+	Result                   string   `json:"result"`
+	Endpoint                 string   `json:"endpoint"`
+	TTFTMS                   *int64   `json:"ttft_ms"`
+	LatencyMS                int64    `json:"latency_ms"`
+	SpeedTPS                 *float64 `json:"speed_tps"`
+	InputTokens              int64    `json:"input_tokens"`
+	OutputTokens             int64    `json:"output_tokens"`
+	ReasoningTokens          int64    `json:"reasoning_tokens"`
+	CacheReadTokens          int64    `json:"cache_read_tokens"`
+	CacheCreationTokens      int64    `json:"cache_creation_tokens"`
+	CacheReadRate            *float64 `json:"cache_read_rate"`
+	TotalTokens              int64    `json:"total_tokens"`
+	CostUSD                  float64  `json:"cost_usd"`
 }
 
 type usageEventStreamFunc func(func(servicedto.UsageEventRecord) error) error
@@ -434,23 +446,29 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
 			ServiceTier:         strings.TrimSpace(row.ServiceTier),
 			ResponseServiceTier: strings.TrimSpace(row.ResponseServiceTier),
-			ClientIP:            row.ClientIP,
-			XForwardedFor:       row.XForwardedFor,
-			UserAgent:           row.UserAgent,
-			ExecutorType:        strings.TrimSpace(row.ExecutorType),
-			Endpoint:            strings.TrimSpace(row.Endpoint),
-			Source:              source,
-			SourceType:          identity.Type,
-			AuthIndex:           row.AuthIndex,
-			RequestID:           strings.TrimSpace(row.RequestID),
-			IsDelete:            isDelete,
-			Failed:              row.Failed,
-			LatencyMS:           row.LatencyMS,
-			TTFTMS:              row.TTFTMS,
-			SpeedTPS:            usageEventSpeedTPS(row),
-			CostUSD:             row.CostUSD,
-			CostAvailable:       row.CostAvailable,
-			PricingStyle:        strings.TrimSpace(row.PricingStyle),
+			UpstreamModel:       strings.TrimSpace(row.UpstreamModel),
+			StateCheck:          strings.TrimSpace(row.StateCheck),
+			StateCheckReason:    strings.TrimSpace(row.StateCheckReason),
+			// 块数只在 block_mismatch 时存在，指针原样透传以区分未上报与真实 0。
+			StateCheckObservedBlocks: row.StateCheckObservedBlocks,
+			StateCheckExpectedBlocks: row.StateCheckExpectedBlocks,
+			ClientIP:                 row.ClientIP,
+			XForwardedFor:            row.XForwardedFor,
+			UserAgent:                row.UserAgent,
+			ExecutorType:             strings.TrimSpace(row.ExecutorType),
+			Endpoint:                 strings.TrimSpace(row.Endpoint),
+			Source:                   source,
+			SourceType:               identity.Type,
+			AuthIndex:                row.AuthIndex,
+			RequestID:                strings.TrimSpace(row.RequestID),
+			IsDelete:                 isDelete,
+			Failed:                   row.Failed,
+			LatencyMS:                row.LatencyMS,
+			TTFTMS:                   row.TTFTMS,
+			SpeedTPS:                 usageEventSpeedTPS(row),
+			CostUSD:                  row.CostUSD,
+			CostAvailable:            row.CostAvailable,
+			PricingStyle:             strings.TrimSpace(row.PricingStyle),
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,
@@ -526,23 +544,29 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 		ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(row.ServiceTier),
 		ResponseServiceTier: strings.TrimSpace(row.ResponseServiceTier),
-		ClientIP:            row.ClientIP,
-		XForwardedFor:       row.XForwardedFor,
-		UserAgent:           row.UserAgent,
-		ExecutorType:        strings.TrimSpace(row.ExecutorType),
-		Result:              result,
-		Endpoint:            strings.TrimSpace(row.Endpoint),
-		TTFTMS:              row.TTFTMS,
-		LatencyMS:           row.LatencyMS,
-		SpeedTPS:            usageEventSpeedTPS(row),
-		InputTokens:         row.InputTokens,
-		OutputTokens:        row.OutputTokens,
-		ReasoningTokens:     row.ReasoningTokens,
-		CacheReadTokens:     row.CacheReadTokens,
-		CacheCreationTokens: row.CacheCreationTokens,
-		CacheReadRate:       usageEventCacheReadRate(row),
-		TotalTokens:         row.TotalTokens,
-		CostUSD:             row.CostUSD,
+		UpstreamModel:       strings.TrimSpace(row.UpstreamModel),
+		StateCheck:          strings.TrimSpace(row.StateCheck),
+		StateCheckReason:    strings.TrimSpace(row.StateCheckReason),
+		// 导出保持原始可空语义，便于外部按空值判定未观察到。
+		StateCheckObservedBlocks: row.StateCheckObservedBlocks,
+		StateCheckExpectedBlocks: row.StateCheckExpectedBlocks,
+		ClientIP:                 row.ClientIP,
+		XForwardedFor:            row.XForwardedFor,
+		UserAgent:                row.UserAgent,
+		ExecutorType:             strings.TrimSpace(row.ExecutorType),
+		Result:                   result,
+		Endpoint:                 strings.TrimSpace(row.Endpoint),
+		TTFTMS:                   row.TTFTMS,
+		LatencyMS:                row.LatencyMS,
+		SpeedTPS:                 usageEventSpeedTPS(row),
+		InputTokens:              row.InputTokens,
+		OutputTokens:             row.OutputTokens,
+		ReasoningTokens:          row.ReasoningTokens,
+		CacheReadTokens:          row.CacheReadTokens,
+		CacheCreationTokens:      row.CacheCreationTokens,
+		CacheReadRate:            usageEventCacheReadRate(row),
+		TotalTokens:              row.TotalTokens,
+		CostUSD:                  row.CostUSD,
 	}
 }
 

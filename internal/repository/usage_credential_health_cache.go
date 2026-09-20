@@ -3,6 +3,7 @@ package repository
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -31,7 +32,42 @@ type CredentialHealthSnapshot struct {
 	// 终身口径完全相同的算法派生，后端不再单独计算一份百分比。
 	InputTokens     int64
 	CacheReadTokens int64
-	Buckets         []CredentialHealthBucket
+	// UpstreamModelMatch 只统计窗口内 upstream_model 非空的事件；空值按“未观察到”排除，
+	// 既不计入分子也不计入分母，避免缺失数据被当成一致或异常。
+	UpstreamModelMatch UpstreamModelMatchStats
+	Buckets            []CredentialHealthBucket
+}
+
+// UpstreamModelMatchStats 是请求模型与上游返回模型的一致率样本，供凭证健康与后续替换仪表盘共用。
+type UpstreamModelMatchStats struct {
+	// Total 是有 upstream_model 的事件数，即一致率分母；为 0 表示无可用样本。
+	Total int64
+	// Matched 是 upstream_model == 请求 model 的事件数。
+	Matched int64
+}
+
+// MatchPercent 返回一致率百分比；Total 为 0 时 ok=false，调用方必须显示为不可用而不是 0%。
+func (s UpstreamModelMatchStats) MatchPercent() (float64, bool) {
+	if s.Total <= 0 {
+		return 0, false
+	}
+	return float64(s.Matched) / float64(s.Total) * 100, true
+}
+
+// MismatchCount 是一致率的补数，只用于展示不一致数量，不参与着色。
+func (s UpstreamModelMatchStats) MismatchCount() int64 {
+	if s.Total <= 0 || s.Matched >= s.Total {
+		return 0
+	}
+	return s.Total - s.Matched
+}
+
+// IsUpstreamModelMatch 是请求模型与上游模型一致性的唯一定义，聚合与后续仪表盘都复用它。
+// 两侧都为空视为未观察到，不算一致。
+func IsUpstreamModelMatch(requestModel, upstreamModel string) bool {
+	requestModel = strings.TrimSpace(requestModel)
+	upstreamModel = strings.TrimSpace(upstreamModel)
+	return requestModel != "" && upstreamModel != "" && requestModel == upstreamModel
 }
 
 // CredentialHealthBucket 是健康图单个 10 分钟桶的成功/失败计数。
@@ -63,6 +99,9 @@ type credentialHealthBucketCounts struct {
 	// token 只累计 canonical 字段，不读取 cached_tokens，与 identity 聚合口径一致。
 	inputTokens     int64
 	cacheReadTokens int64
+	// 上游模型一致率按事件累计；upstream_model 为空的事件完全跳过。
+	upstreamModelTotal   int64
+	upstreamModelMatched int64
 }
 
 type credentialHealthLoadRow struct {
@@ -70,6 +109,8 @@ type credentialHealthLoadRow struct {
 	AuthIndex       string
 	Timestamp       time.Time
 	Failed          bool
+	Model           string
+	UpstreamModel   string
 	InputTokens     int64
 	CacheReadTokens int64
 }
@@ -94,7 +135,7 @@ func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSiz
 		batchSize = credentialHealthStartupBatchSize
 	}
 	rows, err := db.Model(&entities.UsageEvent{}).
-		Select("auth_type, auth_index, timestamp, failed, input_tokens, cache_read_tokens").
+		Select("auth_type, auth_index, timestamp, failed, model, upstream_model, input_tokens, cache_read_tokens").
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		Order("timestamp asc, id asc").
 		Rows()
@@ -139,6 +180,8 @@ func credentialHealthRowsFromUsageEvents(events []entities.UsageEvent) []credent
 			AuthIndex:       event.AuthIndex,
 			Timestamp:       event.Timestamp,
 			Failed:          event.Failed,
+			Model:           event.Model,
+			UpstreamModel:   event.UpstreamModel,
 			InputTokens:     event.InputTokens,
 			CacheReadTokens: event.CacheReadTokens,
 		})
@@ -171,6 +214,13 @@ func (c *UsageRecentEventCache) appendCredentialHealthRowsLocked(rows []credenti
 		// token 在累计前先做非负截断，避免历史脏数据把窗口分母拉成负值。
 		counts.inputTokens = saturatingAddCredentialHealthTokens(counts.inputTokens, max(row.InputTokens, 0))
 		counts.cacheReadTokens = saturatingAddCredentialHealthTokens(counts.cacheReadTokens, max(row.CacheReadTokens, 0))
+		// 只统计有上游模型的事件；空值表示未观察到，不能拉低一致率。
+		if strings.TrimSpace(row.UpstreamModel) != "" {
+			counts.upstreamModelTotal++
+			if IsUpstreamModelMatch(row.Model, row.UpstreamModel) {
+				counts.upstreamModelMatched++
+			}
+		}
 		buckets[bucketUnix] = counts
 		touched[key] = struct{}{}
 	}
@@ -243,6 +293,7 @@ func buildCredentialHealthSnapshot(countsByUnix map[int64]credentialHealthBucket
 	var totalFailure int64
 	var totalInput int64
 	var totalCacheRead int64
+	var upstreamModelMatch UpstreamModelMatchStats
 	for bucketStart := windowStart; bucketStart.Before(windowEnd); bucketStart = bucketStart.Add(credentialHealthBucketSpan) {
 		counts := countsByUnix[bucketStart.Unix()]
 		total := counts.success + counts.failure
@@ -261,22 +312,25 @@ func buildCredentialHealthSnapshot(countsByUnix map[int64]credentialHealthBucket
 		totalFailure += counts.failure
 		totalInput = saturatingAddCredentialHealthTokens(totalInput, counts.inputTokens)
 		totalCacheRead = saturatingAddCredentialHealthTokens(totalCacheRead, counts.cacheReadTokens)
+		upstreamModelMatch.Total = saturatingAddCredentialHealthTokens(upstreamModelMatch.Total, counts.upstreamModelTotal)
+		upstreamModelMatch.Matched = saturatingAddCredentialHealthTokens(upstreamModelMatch.Matched, counts.upstreamModelMatched)
 	}
 	successRate := 0.0
 	if total := totalSuccess + totalFailure; total > 0 {
 		successRate = (float64(totalSuccess) / float64(total)) * 100
 	}
 	return CredentialHealthSnapshot{
-		WindowSeconds:   int64(credentialHealthWindow / time.Second),
-		BucketSeconds:   int64(credentialHealthBucketSpan / time.Second),
-		WindowStart:     windowStart,
-		WindowEnd:       windowEnd,
-		TotalSuccess:    totalSuccess,
-		TotalFailure:    totalFailure,
-		SuccessRate:     successRate,
-		InputTokens:     totalInput,
-		CacheReadTokens: totalCacheRead,
-		Buckets:         buckets,
+		WindowSeconds:      int64(credentialHealthWindow / time.Second),
+		BucketSeconds:      int64(credentialHealthBucketSpan / time.Second),
+		WindowStart:        windowStart,
+		WindowEnd:          windowEnd,
+		TotalSuccess:       totalSuccess,
+		TotalFailure:       totalFailure,
+		SuccessRate:        successRate,
+		InputTokens:        totalInput,
+		CacheReadTokens:    totalCacheRead,
+		UpstreamModelMatch: upstreamModelMatch,
+		Buckets:            buckets,
 	}
 }
 

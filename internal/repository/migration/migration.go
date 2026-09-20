@@ -98,6 +98,8 @@ const (
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
 	// migrationCreateCodexProxyTables 创建 Codex Proxy 事件游标与去重表，仅服务新数据源。
 	migrationCreateCodexProxyTables = "20260918_create_codex_proxy_tables"
+	// migrationAddUsageEventObservabilityFields 增加上游模型与 turn-state 结构判定列，旧行保持空值。
+	migrationAddUsageEventObservabilityFields = "20260921_usage_event_observability_fields"
 )
 
 type schemaMigration struct {
@@ -247,6 +249,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
 		// 新表 migration 使用默认单事务，schema 与版本标记必须一起提交或回滚。
 		{version: migrationCreateCodexProxyTables, run: createCodexProxyTablesMigration},
+		// 可观测性列 additive，旧行自动落空串/NULL，不回填历史数据。
+		{version: migrationAddUsageEventObservabilityFields, run: addUsageEventObservabilityFieldsMigration},
 	}
 }
 

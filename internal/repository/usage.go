@@ -17,7 +17,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, reasoning_effort, service_tier, response_service_tier, executor_type, upstream_model, state_check, state_check_reason, state_check_observed_blocks, state_check_expected_blocks, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageOverviewBoundaryEventProjectionColumns 只包含非 Custom Overview 边界卡片计算需要的字段。
 const usageOverviewBoundaryEventProjectionColumns = "api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, auth_index"
@@ -41,20 +41,26 @@ type usageEventProjection struct {
 	ServiceTier         string
 	ResponseServiceTier string
 	ExecutorType        string
-	Endpoint            string
-	Timestamp           time.Time
-	Source              string
-	AuthIndex           string
-	Failed              bool
-	Generate            *bool
-	LatencyMS           int64
-	TTFTMS              *int64 `gorm:"column:ttft_ms"`
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
+	UpstreamModel       string `gorm:"column:upstream_model"`
+	StateCheck          string `gorm:"column:state_check"`
+	StateCheckReason    string `gorm:"column:state_check_reason"`
+	// 指针区分“未上报块数”与真实 0 块。
+	StateCheckObservedBlocks *int64 `gorm:"column:state_check_observed_blocks"`
+	StateCheckExpectedBlocks *int64 `gorm:"column:state_check_expected_blocks"`
+	Endpoint                 string
+	Timestamp                time.Time
+	Source                   string
+	AuthIndex                string
+	Failed                   bool
+	Generate                 *bool
+	LatencyMS                int64
+	TTFTMS                   *int64 `gorm:"column:ttft_ms"`
+	InputTokens              int64
+	OutputTokens             int64
+	ReasoningTokens          int64
+	CacheReadTokens          int64
+	CacheCreationTokens      int64
+	TotalTokens              int64
 }
 
 // Request Event Log Tab：先按列表条件统计总数，再加载当前页。
@@ -257,25 +263,31 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(event.ServiceTier),
 		ResponseServiceTier: strings.TrimSpace(event.ResponseServiceTier),
-		ClientIP:            event.ClientIP,
-		XForwardedFor:       event.XForwardedFor,
-		UserAgent:           event.UserAgent,
-		ExecutorType:        strings.TrimSpace(event.ExecutorType),
-		Endpoint:            strings.TrimSpace(event.Endpoint),
-		AuthType:            strings.TrimSpace(event.AuthType),
-		RequestID:           strings.TrimSpace(event.RequestID),
-		Provider:            strings.TrimSpace(event.Provider),
-		Source:              strings.TrimSpace(event.Source),
-		AuthIndex:           strings.TrimSpace(event.AuthIndex),
-		Failed:              event.Failed,
-		LatencyMS:           event.LatencyMS,
-		TTFTMS:              event.TTFTMS,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		ReasoningTokens:     event.ReasoningTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-		TotalTokens:         event.TotalTokens,
+		UpstreamModel:       strings.TrimSpace(event.UpstreamModel),
+		StateCheck:          strings.TrimSpace(event.StateCheck),
+		StateCheckReason:    strings.TrimSpace(event.StateCheckReason),
+		// 块数只在 block_mismatch 时非空；原样透传指针，不把缺值当 0。
+		StateCheckObservedBlocks: event.StateCheckObservedBlocks,
+		StateCheckExpectedBlocks: event.StateCheckExpectedBlocks,
+		ClientIP:                 event.ClientIP,
+		XForwardedFor:            event.XForwardedFor,
+		UserAgent:                event.UserAgent,
+		ExecutorType:             strings.TrimSpace(event.ExecutorType),
+		Endpoint:                 strings.TrimSpace(event.Endpoint),
+		AuthType:                 strings.TrimSpace(event.AuthType),
+		RequestID:                strings.TrimSpace(event.RequestID),
+		Provider:                 strings.TrimSpace(event.Provider),
+		Source:                   strings.TrimSpace(event.Source),
+		AuthIndex:                strings.TrimSpace(event.AuthIndex),
+		Failed:                   event.Failed,
+		LatencyMS:                event.LatencyMS,
+		TTFTMS:                   event.TTFTMS,
+		InputTokens:              event.InputTokens,
+		OutputTokens:             event.OutputTokens,
+		ReasoningTokens:          event.ReasoningTokens,
+		CacheReadTokens:          event.CacheReadTokens,
+		CacheCreationTokens:      event.CacheCreationTokens,
+		TotalTokens:              event.TotalTokens,
 	}
 }
 
@@ -298,20 +310,26 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		ServiceTier:         event.ServiceTier,
 		ResponseServiceTier: event.ResponseServiceTier,
 		ExecutorType:        event.ExecutorType,
-		Endpoint:            event.Endpoint,
-		Timestamp:           event.Timestamp,
-		Source:              event.Source,
-		AuthIndex:           event.AuthIndex,
-		Failed:              event.Failed,
-		Generate:            event.Generate,
-		LatencyMS:           event.LatencyMS,
-		TTFTMS:              event.TTFTMS,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		ReasoningTokens:     event.ReasoningTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-		TotalTokens:         event.TotalTokens,
+		UpstreamModel:       event.UpstreamModel,
+		StateCheck:          event.StateCheck,
+		StateCheckReason:    event.StateCheckReason,
+		// 聚合只复用既有维度，不参与任何 token/成本计算，块数指针直接透传。
+		StateCheckObservedBlocks: event.StateCheckObservedBlocks,
+		StateCheckExpectedBlocks: event.StateCheckExpectedBlocks,
+		Endpoint:                 event.Endpoint,
+		Timestamp:                event.Timestamp,
+		Source:                   event.Source,
+		AuthIndex:                event.AuthIndex,
+		Failed:                   event.Failed,
+		Generate:                 event.Generate,
+		LatencyMS:                event.LatencyMS,
+		TTFTMS:                   event.TTFTMS,
+		InputTokens:              event.InputTokens,
+		OutputTokens:             event.OutputTokens,
+		ReasoningTokens:          event.ReasoningTokens,
+		CacheReadTokens:          event.CacheReadTokens,
+		CacheCreationTokens:      event.CacheCreationTokens,
+		TotalTokens:              event.TotalTokens,
 	}
 }
 

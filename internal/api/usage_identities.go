@@ -99,9 +99,12 @@ type usageCredentialHealthResponse struct {
 	TotalFailure  int64     `json:"total_failure"`
 	SuccessRate   float64   `json:"success_rate"`
 	// 窗口内 canonical token 合计；前端用与终身缓存率相同的公式派生百分比。
-	InputTokens     int64                         `json:"input_tokens"`
-	CacheReadTokens int64                         `json:"cache_read_tokens"`
-	Buckets         []usageCredentialHealthBucket `json:"buckets"`
+	InputTokens     int64 `json:"input_tokens"`
+	CacheReadTokens int64 `json:"cache_read_tokens"`
+	// 上游模型一致率样本；总数为 0 时前端显示“数据不足”，不得渲染为 0%。
+	UpstreamModelMatchTotal   int64                         `json:"upstream_model_match_total"`
+	UpstreamModelMatchMatched int64                         `json:"upstream_model_match_matched"`
+	Buckets                   []usageCredentialHealthBucket `json:"buckets"`
 }
 
 type usageCredentialHealthBucket struct {
@@ -446,15 +449,17 @@ func mapUsageCredentialHealthResponse(snapshot *service.UsageCredentialHealthSna
 		})
 	}
 	return &usageCredentialHealthResponse{
-		WindowSeconds:   snapshot.WindowSeconds,
-		BucketSeconds:   snapshot.BucketSeconds,
-		WindowStart:     snapshot.WindowStart,
-		WindowEnd:       snapshot.WindowEnd,
-		TotalSuccess:    snapshot.TotalSuccess,
-		TotalFailure:    snapshot.TotalFailure,
-		SuccessRate:     snapshot.SuccessRate,
-		InputTokens:     snapshot.InputTokens,
-		CacheReadTokens: snapshot.CacheReadTokens,
-		Buckets:         buckets,
+		WindowSeconds:             snapshot.WindowSeconds,
+		BucketSeconds:             snapshot.BucketSeconds,
+		WindowStart:               snapshot.WindowStart,
+		WindowEnd:                 snapshot.WindowEnd,
+		TotalSuccess:              snapshot.TotalSuccess,
+		TotalFailure:              snapshot.TotalFailure,
+		SuccessRate:               snapshot.SuccessRate,
+		InputTokens:               snapshot.InputTokens,
+		CacheReadTokens:           snapshot.CacheReadTokens,
+		UpstreamModelMatchTotal:   snapshot.UpstreamModelMatchTotal,
+		UpstreamModelMatchMatched: snapshot.UpstreamModelMatchMatched,
+		Buckets:                   buckets,
 	}
 }
