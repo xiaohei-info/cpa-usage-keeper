@@ -277,6 +277,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	// codexProxyRequestLogClient 复用同一个 Codex Proxy HTTP 客户端，
 	// 让请求详情与用量采集指向同一上游；未配置时为 nil。
 	var codexProxyRequestLogClient service.RequestLogClient
+	var turnStateProvider api.TurnStateProvider
 	if cfg.CodexProxyBaseURL != "" {
 		codexProxyClient := codexproxy.NewClient(cfg.CodexProxyBaseURL, cfg.CodexProxyToken, cfg.RequestTimeout)
 		runner := poller.NewCodexProxyRunner(db, codexProxyClient, cfg.CodexProxyPollInterval, cfg.CodexProxyBatchSize)
@@ -284,6 +285,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		codexProxyRunner = runner
 		codexQuotaProvider = runner
 		codexProxyRequestLogClient = codexProxyClient
+		turnStateProvider = codexProxyClient
 	}
 	// Codex-only is an extension mode: do not expose or start the CPA poller at all.
 	// Keep the locally-built sources out of the App graph so status requests cannot
@@ -407,6 +409,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			authHandler,
 			cfg.AppBasePath,
 			api.OptionalProviders{
+				TurnState:     turnStateProvider,
 				UsageIdentity: usageIdentityService,
 				ErrorEvents:   errorEventService,
 				Quota:         quotaService,

@@ -51,6 +51,7 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
+	TurnState        TurnStateProvider
 	UsageIdentity    service.UsageIdentityProvider
 	ErrorEvents      service.ErrorEventProvider
 	Quota            QuotaProvider
@@ -105,8 +106,10 @@ func NewRouter(
 	var requestLogProvider service.RequestLogProvider
 	var rankingProvider rankinghttpapi.Provider
 	var localRankingProvider rankinghttpapi.LocalProvider
+	var turnStateProvider TurnStateProvider
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
+		turnStateProvider = optionalProviders[0].TurnState
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		errorEventProvider = optionalProviders[0].ErrorEvents
 		quotaProvider = optionalProviders[0].Quota
@@ -129,6 +132,7 @@ func NewRouter(
 
 	adminProtected := apiV1.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
+	registerTurnStateRoutes(adminProtected, turnStateProvider)
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
 	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)

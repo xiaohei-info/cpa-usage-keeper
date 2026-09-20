@@ -1,0 +1,65 @@
+{
+  "schema": "codex-proxy.turn-state-overview.v1",
+  "server_time": "2026-09-22T00:00:00Z",
+  "epoch": "runtime-1",
+  "config": {
+    "enabled": false,
+    "passive_enabled": false,
+    "active_enabled": false,
+    "mode": "observe",
+    "fallback": "passthrough",
+    "account_mode": "auto",
+    "ttl_seconds": 3600,
+    "refresh_before_seconds": 0,
+    "probe_timeout_seconds": 0,
+    "cooldown_seconds": 0,
+    "max_attempts_per_round": 0
+  },
+  "summary": {
+    "sessions": 0,
+    "usable": 0,
+    "ready": 0,
+    "collecting": 0,
+    "expired": 0,
+    "blocked": 0,
+    "injection_count": 0,
+    "passive_observations": 0,
+    "active_probes": 0,
+    "accepted_probes": 0,
+    "rejected_probes": 0
+  },
+  "sessions": [
+    {
+      "entry_id": "entry-1",
+      "model": "gpt-test",
+      "account_mode": "personal",
+      "phase": "observing",
+      "account_label": null,
+      "diagnostic": null,
+      "last_observed_at": null,
+      "last_injected_at": null,
+      "next_probe_at": null,
+      "active": null,
+      "ready": null,
+      "injection_count": 0,
+      "observation_count": 0,
+      "probe_count": 0,
+      "strikes": 0
+    }
+  ],
+  "events": [
+    {
+      "id": "event-1",
+      "at": "2026-09-22T00:00:00Z",
+      "source": "active",
+      "action": "probe_finish",
+      "result": "missing_state",
+      "entry_id": null,
+      "model": null,
+      "route_id": null,
+      "length": null,
+      "blocks": null,
+      "usage": null
+    }
+  ]
+}

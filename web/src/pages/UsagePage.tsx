@@ -1,3 +1,4 @@
+import { TurnStatePanel } from '@/components/usage/TurnStatePanel';
 import { CodexProxyCredentialsSection } from '@/components/usage/credentials/CodexProxyCredentialsSection';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
@@ -88,6 +89,7 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   'auth-files': 'usage_stats.tab_auth_files',
   'ai-provider': 'usage_stats.tab_ai_provider',
   settings: 'usage_stats.tab_settings',
+  'turn-state': 'turn_state.title',
 };
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
@@ -144,7 +146,7 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'turn-state' && tab !== 'realtime' && tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => tab === 'realtime' || shouldShowRangeControls(tab);
 
@@ -1733,7 +1735,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     });
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
+  const [turnStateRefresh, setTurnStateRefresh] = useState(0);
   const refreshActiveTab = useCallback(async () => {
+    if (activeTab === 'turn-state') { setTurnStateRefresh(value => value + 1); return; }
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
     if (activeTab === 'realtime') {
       await loadRealtime();
@@ -1763,6 +1767,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
+    if (activeTab === 'turn-state') return;
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
     if (activeTab === 'realtime') {
       await loadRealtime();
@@ -2211,6 +2216,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               refreshing={manualRefreshLoading}
             />}
 
+            {activeTab === 'turn-state' && <TurnStatePanel refreshKey={turnStateRefresh} onAuthRequired={onAuthRequired} />}
             {activeTab === 'overview' && (error || comparisonsError) && <div className={styles.errorBox}>{(error || comparisonsError) === 'AUTH_REQUIRED' ? t('auth.session_expired') : (error || comparisonsError)}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && authSessionsError && <div className={styles.errorBox}>{authSessionsError}</div>}
