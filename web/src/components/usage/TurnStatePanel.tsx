@@ -69,6 +69,8 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   const stale = snapshot && (failed || now - Date.parse(snapshot.server_time) > 90_000 || (fetched && now - Date.parse(fetched) > 90_000));
 
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
+    {/* 模型质量是页面主结论，优先于 proxy 运行时缓存细节。 */}
+    <ModelSubstitutionPanel refreshKey={refreshKey} onAuthRequired={onAuthRequired} />
     <Card title={t('turn_state.title')}>
       <p className={styles.intro}>{t('turn_state.read_only')}</p>
       <p className={styles.intro}>{t('turn_state.settings_guidance')}</p>
@@ -111,7 +113,5 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         {snapshot.events.map((event, index) => <article key={`${event.id}:${index}`} className={styles.event}><div className={styles.eventMain}><time>{dateTime(event.at, unknown)}</time><span>{eventSentence(event)}</span></div><details><summary>{t('turn_state.technical_details')}</summary><dl className={styles.fields}><div><dt>{t('turn_state.model')}</dt><dd>{event.model ?? unknown}</dd></div>{event.length != null && <div><dt>{t('turn_state.shape')}</dt><dd>{event.length} {t('turn_state.characters')} / {event.blocks} {t('turn_state.blocks_short')}</dd></div>}{event.usage && <div><dt>{t('turn_state.probe_usage')}</dt><dd>{event.usage.input_tokens ?? unknown} / {event.usage.output_tokens ?? unknown} {t('turn_state.tokens')}</dd></div>}</dl></details></article>)}
       </Card>
     </>}
-    {/* 模型替换观测只读 usage_events 历史，与上面的 proxy 运行时快照是否可用无关，因此始终渲染。 */}
-    <ModelSubstitutionPanel refreshKey={refreshKey} onAuthRequired={onAuthRequired} />
   </section>;
 }
