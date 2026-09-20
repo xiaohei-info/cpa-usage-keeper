@@ -51,17 +51,19 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	TurnState        TurnStateProvider
-	UsageIdentity    service.UsageIdentityProvider
-	ErrorEvents      service.ErrorEventProvider
-	Quota            QuotaProvider
-	CPAAPIKeys       service.CPAAPIKeyProvider
-	AuthFiles        service.AuthFilesManagementProvider
-	CredentialStatus service.CredentialStatusProvider
-	RequestLogs      service.RequestLogProvider
-	Ranking          rankinghttpapi.Provider
-	LocalRanking     rankinghttpapi.LocalProvider
-	Status           StatusRouteConfig
+	TurnState TurnStateProvider
+	// ModelSubstitution 是 Turn-State 页模型替换观测的只读聚合来源。
+	ModelSubstitution ModelSubstitutionProvider
+	UsageIdentity     service.UsageIdentityProvider
+	ErrorEvents       service.ErrorEventProvider
+	Quota             QuotaProvider
+	CPAAPIKeys        service.CPAAPIKeyProvider
+	AuthFiles         service.AuthFilesManagementProvider
+	CredentialStatus  service.CredentialStatusProvider
+	RequestLogs       service.RequestLogProvider
+	Ranking           rankinghttpapi.Provider
+	LocalRanking      rankinghttpapi.LocalProvider
+	Status            StatusRouteConfig
 }
 
 func NewRouter(
@@ -107,9 +109,11 @@ func NewRouter(
 	var rankingProvider rankinghttpapi.Provider
 	var localRankingProvider rankinghttpapi.LocalProvider
 	var turnStateProvider TurnStateProvider
+	var modelSubstitutionProvider ModelSubstitutionProvider
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		turnStateProvider = optionalProviders[0].TurnState
+		modelSubstitutionProvider = optionalProviders[0].ModelSubstitution
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		errorEventProvider = optionalProviders[0].ErrorEvents
 		quotaProvider = optionalProviders[0].Quota
@@ -133,6 +137,7 @@ func NewRouter(
 	adminProtected := apiV1.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
 	registerTurnStateRoutes(adminProtected, turnStateProvider)
+	registerModelSubstitutionRoute(adminProtected, modelSubstitutionProvider)
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
 	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)

@@ -1,0 +1,38 @@
+.panel { display: grid; gap: 1rem; min-width: 0; }
+.rangeGroup { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rangeButton { padding: 4px 10px; border: 1px solid var(--border-color, #8884); border-radius: 999px; background: transparent; color: var(--text-secondary, #aaa); font-size: 12px; cursor: pointer; }
+.rangeButton:hover { color: var(--text-primary, #eee); }
+.rangeButtonActive { border-color: color-mix(in srgb, #3b82f6 60%, transparent); background: color-mix(in srgb, #3b82f6 16%, transparent); color: var(--text-primary, #eee); }
+.coverage { margin: 0 0 1rem; color: var(--text-secondary, #aaa); font-size: .9rem; }
+.summaryGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+.summaryCard { display: flex; flex-direction: column; gap: .4rem; padding: .9rem 1rem; border: 1px solid var(--border-color, #8884); border-radius: var(--keeper-card-radius, 12px); background: var(--bg-secondary); min-width: 0; }
+.summaryLabel { color: var(--text-secondary, #aaa); font-size: .82rem; }
+.summaryCard > strong { font-size: 1.5rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.topValue { font-size: 1.05rem !important; overflow-wrap: anywhere; }
+.toneSuccess { color: #16a34a; }
+.toneWarning { color: #d97706; }
+.toneDanger { color: #dc2626; }
+.toneNeutral { color: var(--text-secondary, #aaa); }
+.chartSurface, .matrixSurface { margin-top: 1rem; padding: 14px; border: 1px solid var(--border-color, #8884); border-radius: var(--keeper-card-radius, 12px); background: var(--bg-secondary); min-width: 0; }
+.chartSurface { height: 320px; box-sizing: border-box; display: flex; flex-direction: column; }
+.chartSurface > div:first-child { flex: 1 1 auto; min-height: 0; }
+.chartNote { margin: .5rem 0 0; color: var(--text-secondary, #aaa); font-size: .8rem; }
+.chartWarning { margin: .35rem 0 0; color: #d97706; font-size: .8rem; }
+.warning { color: #d97706; font-weight: 600; }
+.empty { margin: 1rem 0 0; color: var(--text-secondary, #aaa); }
+.matrixSurface { overflow-x: auto; }
+.matrix { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.matrix th, .matrix td { padding: .4rem .55rem; border-bottom: 1px solid var(--border-color, #8884); text-align: right; white-space: nowrap; }
+.matrix thead th { color: var(--text-secondary, #aaa); font-weight: 600; }
+.matrix th[scope='row'] { text-align: left; font-weight: 600; }
+.matrixCell { font-variant-numeric: tabular-nums; }
+/* 对角线（请求模型 == 上游模型）按中性处理；非对角线用替换告警色。
+   强度百分比由 JS 直接算成 --cell-diagonal/--cell-warning 两个百分比，避免在 color-mix 里做 calc。 */
+.matrixCellDiagonal { background: color-mix(in srgb, #64748b var(--cell-diagonal, 0%), transparent); }
+.matrixCellWarning { background: color-mix(in srgb, #dc2626 var(--cell-warning, 0%), transparent); color: #b91c1c; font-weight: 600; }
+.matrixCellEmpty { color: color-mix(in srgb, var(--text-secondary, #aaa) 60%, transparent); }
+.matrixRate { font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .summaryCard > strong { font-size: 1.25rem; }
+  .chartSurface { height: 280px; }
+}

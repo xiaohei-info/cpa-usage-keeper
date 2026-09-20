@@ -409,12 +409,14 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			authHandler,
 			cfg.AppBasePath,
 			api.OptionalProviders{
-				TurnState:     turnStateProvider,
-				UsageIdentity: usageIdentityService,
-				ErrorEvents:   errorEventService,
-				Quota:         quotaService,
-				CPAAPIKeys:    cpaAPIKeyService,
-				AuthFiles:     authFilesManagementService,
+				TurnState: turnStateProvider,
+				// 模型替换观测只读 usage_events，与 Turn-State 概览是否可用无关。
+				ModelSubstitution: repository.NewModelSubstitutionProvider(db),
+				UsageIdentity:     usageIdentityService,
+				ErrorEvents:       errorEventService,
+				Quota:             quotaService,
+				CPAAPIKeys:        cpaAPIKeyService,
+				AuthFiles:         authFilesManagementService,
 				// 认证文件与 AI 供应商共用一个 service，路由层按类型分发。
 				CredentialStatus: credentialStatusService,
 				RequestLogs:      requestLogService,

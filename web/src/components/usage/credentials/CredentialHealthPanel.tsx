@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { UsageCredentialHealth } from '@/lib/types'
-import { healthGreenThreshold } from '@/utils/usage/health'
+import { healthGreenThreshold, upstreamModelMatchTone } from '@/utils/usage/health'
 import { IconRefreshCw, IconTimer } from '@/components/ui/icons'
 import { cacheReadRateTone, credentialToneClassName, formatCredentialPercent } from './CredentialSectionShell'
 import styles from './CredentialSections.module.scss'
@@ -40,21 +40,9 @@ const HEALTH_BUCKET_COUNT = HEALTH_WINDOW_MINUTES / HEALTH_BUCKET_MINUTES
 const HEALTH_EMPTY_HEIGHT_PX = 5
 const HEALTH_REQUEST_HEIGHT_MIN_PX = 10
 const HEALTH_REQUEST_HEIGHT_RANGE_PX = 12
-// 上游模型一致率的后端契约：总样本 <= 0 时不可用，不能下降为 0% 红色。
-export type UpstreamMatchTone = 'success' | 'warning' | 'danger' | 'neutral'
-
-export const upstreamModelMatchTone = (percent: number | null): UpstreamMatchTone => {
-  if (percent === null) {
-    return 'neutral'
-  }
-  if (percent >= 90) {
-    return 'success'
-  }
-  if (percent >= 60) {
-    return 'warning'
-  }
-  return 'danger'
-}
+// 上游模型一致率分段色调复用公共 helper，模型替换仪表盘共用同一套 90/60 分界。
+export { upstreamModelMatchTone }
+export type { UpstreamMatchTone } from '@/utils/usage/health'
 
 export const resolveUpstreamModelMatch = (health: UsageCredentialHealth | undefined): { percent: number | null; total: number; mismatched: number } => {
   const total = safeCount(finiteNumber(health?.upstream_model_match_total) ?? 0)

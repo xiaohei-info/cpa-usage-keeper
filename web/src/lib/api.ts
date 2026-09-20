@@ -1,4 +1,5 @@
 import { isTurnStateOverview } from './turnState'
+import { normalizeModelSubstitution } from './modelSubstitution'
 import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
@@ -1048,5 +1049,15 @@ export async function fetchTurnStateOverview(signal?: AbortSignal): Promise<impo
   if (!response.ok) throw new ApiError('turn_state_unavailable', response.status);
   const data = await response.json();
   if (!isTurnStateOverview(data)) throw new Error('turn_state_unavailable');
+  return data;
+}
+
+/** 模型替换观测快照；range 由后端白名单夹紧，前端只传用户选择值。 */
+export async function fetchModelSubstitution(range: string, signal?: AbortSignal): Promise<import('./modelSubstitution').ModelSubstitutionResponse> {
+  const params = new URLSearchParams({ range });
+  const response = await apiFetch(`${apiPath('/turn-state/model-mismatch')}?${params.toString()}`, { signal });
+  if (!response.ok) throw new ApiError('model_substitution_unavailable', response.status);
+  const data = normalizeModelSubstitution(await response.json());
+  if (!data) throw new Error('model_substitution_unavailable');
   return data;
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError, fetchTurnStateOverview } from '@/lib/api';
 import type { TurnStateEvent, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
 import { Card } from '@/components/ui/Card';
+import { ModelSubstitutionPanel } from './ModelSubstitutionPanel';
 import styles from './TurnStatePanel.module.scss';
 
 const dateTime = (value: string | null, unknown: string): string => {
@@ -110,5 +111,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         {snapshot.events.map((event, index) => <article key={`${event.id}:${index}`} className={styles.event}><div className={styles.eventMain}><time>{dateTime(event.at, unknown)}</time><span>{eventSentence(event)}</span></div><details><summary>{t('turn_state.technical_details')}</summary><dl className={styles.fields}><div><dt>{t('turn_state.model')}</dt><dd>{event.model ?? unknown}</dd></div>{event.length != null && <div><dt>{t('turn_state.shape')}</dt><dd>{event.length} {t('turn_state.characters')} / {event.blocks} {t('turn_state.blocks_short')}</dd></div>}{event.usage && <div><dt>{t('turn_state.probe_usage')}</dt><dd>{event.usage.input_tokens ?? unknown} / {event.usage.output_tokens ?? unknown} {t('turn_state.tokens')}</dd></div>}</dl></details></article>)}
       </Card>
     </>}
+    {/* 模型替换观测只读 usage_events 历史，与上面的 proxy 运行时快照是否可用无关，因此始终渲染。 */}
+    <ModelSubstitutionPanel refreshKey={refreshKey} onAuthRequired={onAuthRequired} />
   </section>;
 }

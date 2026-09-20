@@ -6,7 +6,9 @@ import { ApiError, fetchTurnStateOverview } from '@/lib/api';
 import { TurnStatePanel } from '../TurnStatePanel';
 import fixture from '../../../../../internal/codexproxy/testdata/turn_state_overview.json';
 import type { TurnStateOverview } from '@/lib/turnState';
-vi.mock('@/lib/api', () => ({ fetchTurnStateOverview: vi.fn(), ApiError: class extends Error { constructor(message: string, public status: number) { super(message); } } }));
+vi.mock('@/lib/api', () => ({ fetchTurnStateOverview: vi.fn(), fetchModelSubstitution: vi.fn(), ApiError: class extends Error { constructor(message: string, public status: number) { super(message); } } }));
+// 模型替换面板会画 canvas；这里只验证它被挂载在 Turn-State 页上，不需要真实渲染图表。
+vi.mock('react-chartjs-2', () => ({ Chart: () => null }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 it('shows read-only snapshot, unknown usage, epoch resets and stale failure; pauses hidden polling and cancels on unmount', async () => {
@@ -21,7 +23,9 @@ it('shows read-only snapshot, unknown usage, epoch resets and stale failure; pau
   expect(node.textContent).toContain('turn_state.current'); expect(node.textContent).toContain('turn_state.unknown');
   expect(node.textContent).toContain('turn_state.overview_ready');
   expect(node.textContent).toContain('turn_state.state_ready'); expect(node.textContent).toContain('turn_state.backup_state');
-  expect(node.querySelector('button, input, a')).toBeNull();
+  // Turn-State 快照本身仍然只读；页面上唯一的交互控件是模型替换观测的范围选择器。
+  const controls = [...node.querySelectorAll('button, input, a')];
+  expect(controls.every((control) => control.getAttribute('aria-pressed') !== null)).toBe(true);
   fetcher.mockRejectedValueOnce(new Error('private error'));
   await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
   expect(node.textContent).toContain('turn_state.stale'); expect(node.textContent).not.toContain('private error');
@@ -42,5 +46,7 @@ it('reports unavailable without zero counts and preserves Keeper authentication 
   const onAuthRequired = vi.fn(); const node = document.createElement('div'); const root = createRoot(node);
   await act(async () => root.render(<TurnStatePanel onAuthRequired={onAuthRequired} />));
   expect(node.textContent).toContain('turn_state.unavailable'); expect(node.textContent).not.toContain('turn_state.counters'); expect(onAuthRequired).toHaveBeenCalledOnce();
+  // 模型替换观测只读 Keeper 自己的历史，proxy 概览不可用时也必须继续渲染。
+  expect(node.textContent).toContain('turn_state.model_sub_title');
   await act(async () => root.unmount());
 });
