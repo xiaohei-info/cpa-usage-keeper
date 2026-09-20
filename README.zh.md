@@ -1,3 +1,78 @@
+# CPA Usage Keeper · Codex 集成版
+
+**CPA 和 Codex Proxy，用同一个仪表盘看用量、查请求。**
+
+基于 [Willxup/cpa-usage-keeper](https://github.com/Willxup/cpa-usage-keeper) 的社区衍生版本，新增对 [Codex Proxy · Keeper 集成版](https://github.com/xiaohei-info/codex-proxy) 的支持。保留原有 CPA 功能，也可以不部署 CPA，单独连接 Codex Proxy。
+
+[English](./README.md) · [配套 Codex Proxy](https://github.com/xiaohei-info/codex-proxy) · [反馈问题](https://github.com/xiaohei-info/cpa-usage-keeper/issues)
+
+## 相比上游，新增了什么
+
+| 新功能 | 能帮你做什么 |
+| --- | --- |
+| Codex 用量仪表盘 | 在 Overview、Realtime、Analysis 中查看请求、Token、缓存、成功率、延迟与估算成本 |
+| 请求明细与排障 | 查看推理 Token、推理强度和 SSE 标识；预览、下载代理保存的请求与响应正文 |
+| 账号与额度卡片 | 展示 Codex Proxy 账号、请求健康及上游额度快照，复用原认证文件页样式 |
+| 持续采集 | 断点续传、重复事件去重，重启后继续同步，不重复计数 |
+| 两种接入方式 | Codex Proxy 单独使用，或与已有 CPA 数据一起展示 |
+
+## 快速开始
+
+需要 Docker Compose，以及**本分支配套的 Codex Proxy**。上游官方镜像和安装包不包含这些新增功能；下面从两个仓库源码构建，不依赖预发布镜像。
+
+```bash
+git clone --branch keeper-integration https://github.com/xiaohei-info/codex-proxy.git
+git clone --branch codex-integration https://github.com/xiaohei-info/cpa-usage-keeper.git
+cd cpa-usage-keeper
+```
+
+1. 按 [Codex Proxy 配置说明](https://github.com/xiaohei-info/codex-proxy#开始使用)，在相邻仓库的 `data/local.yaml` 设置私有密钥并开启归档。已有配置请合并，勿覆盖。
+2. 在当前目录创建 `.env`，填入两项私有值：
+
+   ```dotenv
+   CODEX_PROXY_TOKEN=
+   LOGIN_PASSWORD=
+   ```
+
+   `CODEX_PROXY_TOKEN` 与 Codex Proxy 的 `server.proxy_api_key` 一致；`LOGIN_PASSWORD` 是你自行设置的 Keeper 登录密码。不要提交 `.env`。
+
+3. 启动两个服务：
+
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.codex.yml up -d --build
+   ```
+
+打开 **`http://localhost:8080`** 为代理添加账号，再打开 **`http://localhost:8318`** 登录 Keeper。产生新请求后，用量会自动同步。数据保存在两个仓库各自的 `data/` 目录；示例默认仅监听本机，远程访问请使用 SSH 隧道或 HTTPS 反向代理。
+
+### 已有 CPA 或 Codex Proxy？
+
+使用本仓库源码构建的 Keeper，在原部署中增加以下配置即可，**不需要迁移代理账号**：
+
+```dotenv
+CODEX_PROXY_BASE_URL=http://codex-proxy:8080
+CODEX_PROXY_TOKEN=your-existing-proxy-api-key
+CODEX_PROXY_POLL_INTERVAL=10s
+CPA_REQUEST_LOG_ACCESS_ENABLED=true
+```
+
+地址必须能从 Keeper 容器访问，`localhost` 不代表另一个容器。混合使用时保留原 `CPA_BASE_URL`、`CPA_MANAGEMENT_KEY` 和 `REDIS_QUEUE_ADDR`；仅用 Codex Proxy 时将 CPA 地址和管理密钥都留空。上面的双服务 Compose 示例也支持从 `.env` 传入这三个 CPA 变量，但需自行保证与已有 CPA 网络连通。升级已有实例前请备份数据库。
+
+## 使用边界
+
+- Codex Proxy 账号与额度为**只读**，不提供账号编辑、删除、额度刷新或重置；缺失与过期数据会明确标记。
+- 额度来自代理保存的上游观察值；成本沿用 Keeper 配置的模型价格估算，不是实际账单。推理等字段仅在上游提供时展示。
+- 正文需要代理已开启归档及 Keeper 已开启请求日志访问。历史未捕获、超限或已转存的正文不可在线查询；统计仍可保留。
+- 请求正文可能含敏感信息，请保护登录凭据、数据库和备份。
+
+## 上游与许可
+
+感谢原 Keeper 作者及贡献者，本分支继续使用 [MIT License](./LICENSE)。配套 Codex Proxy 是独立项目，遵循其非商业许可。
+
+<details>
+<summary>展开上游功能、界面预览与完整使用文档</summary>
+
+> 以下保留原项目文档；上游下载与镜像链接不包含本分支的 Codex Proxy 支持。仅用 Codex Proxy 时，不需要其中标为必填的 CPA 配置。
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/keeper-logo-dark.svg" />
@@ -482,3 +557,5 @@ CPA_PUBLIC_URL=https://cpa.example.com
 ## License
 
 本项目基于 [MIT License](./LICENSE) 开源。
+
+</details>

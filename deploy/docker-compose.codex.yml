@@ -1,0 +1,43 @@
+# Keep the two repositories next to each other, configure codex-proxy/data/local.yaml,
+# then run from the Keeper repository:
+# docker compose --env-file .env -f deploy/docker-compose.codex.yml up -d --build
+services:
+  codex-proxy:
+    build:
+      context: ../../codex-proxy
+    image: codex-proxy:keeper-local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      CODEX_PROXY_HOST: "0.0.0.0"
+      PORT: "8080"
+      NODE_OPTIONS: "--max-old-space-size=512"
+    mem_limit: 768m
+    volumes:
+      - ../../codex-proxy/data:/app/data
+
+  keeper:
+    build:
+      context: ..
+    image: cpa-usage-keeper:codex-local
+    restart: unless-stopped
+    depends_on:
+      codex-proxy:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8318:8080"
+    environment:
+      TZ: Asia/Shanghai
+      WORK_DIR: /data
+      AUTH_ENABLED: "true"
+      LOGIN_PASSWORD: ${LOGIN_PASSWORD:?Set a private Keeper login password}
+      CODEX_PROXY_BASE_URL: http://codex-proxy:8080
+      CODEX_PROXY_TOKEN: ${CODEX_PROXY_TOKEN:?Use the proxy_api_key from Codex Proxy}
+      CODEX_PROXY_POLL_INTERVAL: 10s
+      CPA_REQUEST_LOG_ACCESS_ENABLED: "true"
+      CPA_BASE_URL: ${CPA_BASE_URL:-}
+      CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY:-}
+      REDIS_QUEUE_ADDR: ${REDIS_QUEUE_ADDR:-}
+    volumes:
+      - ../data:/data

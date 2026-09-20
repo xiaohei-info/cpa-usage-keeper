@@ -1,3 +1,78 @@
+# CPA Usage Keeper · Codex Edition
+
+**One dashboard for CPA and Codex Proxy usage, accounts and request history.**
+
+A community fork of [Willxup/cpa-usage-keeper](https://github.com/Willxup/cpa-usage-keeper) with support for [Codex Proxy · Keeper Edition](https://github.com/xiaohei-info/codex-proxy). Keep your existing CPA setup, add Codex Proxy alongside it, or use Codex Proxy alone.
+
+[简体中文](./README.zh.md) · [Companion Codex Proxy](https://github.com/xiaohei-info/codex-proxy) · [Report an issue](https://github.com/xiaohei-info/cpa-usage-keeper/issues)
+
+## What's new
+
+| Feature | What you get |
+| --- | --- |
+| Codex usage dashboard | Requests, tokens, cache use, success rates, latency and estimated costs in Overview, Realtime and Analysis |
+| Request inspection | Reasoning tokens, reasoning effort and SSE indicators, plus previews/downloads of bodies captured by the proxy |
+| Account and quota cards | Codex Proxy identities, request health and observed upstream quotas using the existing credential-card layout |
+| Reliable collection | Persistent checkpoints and event deduplication; restart and continue without double-counting |
+| Flexible data sources | Codex Proxy alone or together with your existing CPA data |
+
+## Quick start
+
+You need Docker Compose and **the companion Codex Proxy fork**. Upstream images and binaries do not include these additions. This setup builds both repositories from source; it does not require prebuilt fork images.
+
+```bash
+git clone --branch keeper-integration https://github.com/xiaohei-info/codex-proxy.git
+git clone --branch codex-integration https://github.com/xiaohei-info/cpa-usage-keeper.git
+cd cpa-usage-keeper
+```
+
+1. Follow the [Codex Proxy setup](https://github.com/xiaohei-info/codex-proxy/blob/keeper-integration/README_EN.md#get-started) to enable archiving and set a private proxy key in the sibling repository's `data/local.yaml`. Merge settings into existing deployments; do not overwrite them.
+2. Create `.env` in this directory and fill in both private values:
+
+   ```dotenv
+   CODEX_PROXY_TOKEN=
+   LOGIN_PASSWORD=
+   ```
+
+   `CODEX_PROXY_TOKEN` must match the proxy's `server.proxy_api_key`. `LOGIN_PASSWORD` is your chosen Keeper login password. Do not commit `.env`.
+
+3. Build and start both services:
+
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.codex.yml up -d --build
+   ```
+
+Add proxy accounts at **`http://localhost:8080`**, then sign in to Keeper at **`http://localhost:8318`**. New requests appear automatically. Each repository keeps its own `data/` directory. Ports bind to localhost by default; use an SSH tunnel or HTTPS reverse proxy for remote access.
+
+### Already running CPA or Codex Proxy?
+
+Build Keeper from this repository and add these settings to your existing deployment. **No proxy-account migration is needed.**
+
+```dotenv
+CODEX_PROXY_BASE_URL=http://codex-proxy:8080
+CODEX_PROXY_TOKEN=your-existing-proxy-api-key
+CODEX_PROXY_POLL_INTERVAL=10s
+CPA_REQUEST_LOG_ACCESS_ENABLED=true
+```
+
+The proxy address must be reachable from Keeper's container; `localhost` is not another container. Keep `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY` and `REDIS_QUEUE_ADDR` for mixed-source use, or leave both CPA URL and management key empty for Codex-only mode. The paired Compose example also accepts those three CPA variables from `.env`; connectivity to an existing CPA instance is your responsibility. Back up the database before upgrading an existing deployment.
+
+## Good to know
+
+- Codex account/quota views are **read-only**: no account editing/deletion or upstream quota refresh/reset actions. Missing and stale observations are marked.
+- Quotas come from the proxy's upstream observations. Costs use Keeper's configured model prices, not provider invoices. Reasoning and other optional fields require upstream data.
+- Body previews require proxy archiving and Keeper request-log access to be enabled. Uncaptured, oversized or externally archived bodies are unavailable online; usage statistics can remain.
+- Request bodies may contain sensitive information. Protect credentials, databases and backups.
+
+## Upstream and license
+
+Thanks to the upstream Keeper authors and contributors. This fork retains the [MIT License](./LICENSE). The companion Codex Proxy is a separate project with Non-Commercial terms.
+
+<details>
+<summary>Original upstream features, screenshots and full documentation</summary>
+
+> Upstream download/image links below do not include this fork's Codex Proxy support. CPA settings listed as required below are not required in Codex-only mode.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/keeper-logo-dark.svg" />
@@ -482,3 +557,5 @@ CPA_PUBLIC_URL=https://cpa.example.com
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+</details>
