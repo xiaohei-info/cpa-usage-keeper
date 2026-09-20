@@ -4,7 +4,7 @@ import { normalizeRequestEventsPreferences } from '../UsagePage';
 
 describe('UsagePage request event column preferences', () => {
   it('resets column visibility and order from every legacy preference version', () => {
-    for (const version of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    for (const version of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
       const preferences = normalizeRequestEventsPreferences({
         version,
         filters: {
@@ -17,7 +17,7 @@ describe('UsagePage request event column preferences', () => {
       });
 
       expect(preferences).toEqual({
-        version: 9,
+        version: 10,
         filters: {
           model: 'gpt-5.6',
           source: 'openai-team',
@@ -51,7 +51,7 @@ describe('UsagePage request event column preferences', () => {
 
   it('preserves and normalizes custom column settings from the current version', () => {
     const preferences = normalizeRequestEventsPreferences({
-      version: 9,
+      version: 10,
       filters: { model: 'gpt-5', apiKeyId: '22', source: 'team', result: 'failed' },
       visibleColumnIds: ['model', 'timestamp', 'model', 'not-a-column', 'total_cost'],
       columnOrder: ['total_cost', 'timestamp', 'total_cost', 'not-a-column'],
@@ -68,7 +68,7 @@ describe('UsagePage request event column preferences', () => {
 
   it('falls back to all compact columns for damaged current-version settings', () => {
     const preferences = normalizeRequestEventsPreferences({
-      version: 9,
+      version: 10,
       visibleColumnIds: ['not-a-column'],
       columnOrder: 'not-an-array',
     });

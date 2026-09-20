@@ -627,7 +627,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences).toEqual({
-      version: 9,
+      version: 10,
       filters: {
         model: 'claude-opus',
         source: 'authidx-source-b',
@@ -640,7 +640,7 @@ describe('UsagePage request event preferences', () => {
 
   it('falls back safely for damaged persisted request event preferences', () => {
     const preferences = normalizeRequestEventsPreferences({
-      version: 9,
+      version: 10,
       filters: {
         model: 42,
         source: '',
@@ -661,7 +661,7 @@ describe('UsagePage request event preferences', () => {
   it('keeps current request event columns unchanged when Speed is absent', () => {
     const columnIdsWithoutSpeed = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
     const preferences = normalizeRequestEventsPreferences({
-      version: 9,
+      version: 10,
       visibleColumnIds: columnIdsWithoutSpeed,
     });
 
@@ -703,7 +703,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
 
     saveRequestEventsPreferences({
-      version: 9,
+      version: 10,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -715,7 +715,7 @@ describe('UsagePage request event preferences', () => {
 
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
-      version: 9,
+      version: 10,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -732,7 +732,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
 
     saveRequestEventsPreferences({
-      version: 9,
+      version: 10,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -757,7 +757,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     saveRequestEventsPreferences({
-      version: 9,
+      version: 10,
       filters: {
         model: 'gpt-4.1',
         source: 'source-a',
@@ -768,7 +768,7 @@ describe('UsagePage request event preferences', () => {
 
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
-      version: 9,
+      version: 10,
       filters: {
         model: 'gpt-4.1',
         source: 'source-a',

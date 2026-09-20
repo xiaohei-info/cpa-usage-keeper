@@ -117,6 +117,13 @@ type RequestEventRow = {
   apiKey: string;
   model: string;
   modelAlias: string;
+  modelValue: string;
+  upstreamModel: string;
+  stateCheck: string;
+  stateCheckReason: string;
+  stateCheckObservedBlocks: number | null;
+  stateCheckExpectedBlocks: number | null;
+  upstreamModelStatus: UpstreamModelStatus;
   reasoningEffort: string;
   speedMode: string;
   speedModeRaw: string;
@@ -310,6 +317,13 @@ const toNumber = (value: unknown): number => {
   return parsed;
 };
 
+// 缺失与真实 0 必须区分：指针缺值时后端不输出该字段，前端保留 null。
+const toFiniteNumberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const formatRequestEventTimestamp = (timestamp: string): { time: string; date: string } => {
   const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
   if (!match) return { time: timestamp || '-', date: '' };
@@ -352,6 +366,90 @@ const REQUEST_SPEED_MODE_LABEL_KEYS: Record<string, string> = {
   priority: 'usage_stats.speed_mode_fast',
   fast: 'usage_stats.speed_mode_fast',
   flex: 'usage_stats.speed_mode_flex',
+};
+
+// 上游模型一致性的唯一定义与后端 IsUpstreamModelMatch 一致：任一侧为空都算“未观察到”。
+export type UpstreamModelStatus = 'match' | 'mismatch' | 'unobserved';
+
+export const resolveUpstreamModelStatus = (requestModel: string, upstreamModel: string): UpstreamModelStatus => {
+  if (!requestModel || !upstreamModel) return 'unobserved';
+  return requestModel === upstreamModel ? 'match' : 'mismatch';
+};
+
+export type StateCheckTone = 'success' | 'danger' | 'neutral';
+
+// 判定码到展示色与标签的映射；未知码必须落到 neutral，永远不能是绿色。
+// shape_mismatch / invalid / expired 共用“可能降智”标签，失败规则由 reason 行说明。
+const STATE_CHECK_VERDICTS: Record<string, { tone: StateCheckTone; labelKey: string }> = {
+  ok: { tone: 'success', labelKey: 'usage_stats.request_events_state_check_ok' },
+  shape_mismatch: { tone: 'danger', labelKey: 'usage_stats.request_events_state_check_degraded' },
+  invalid: { tone: 'danger', labelKey: 'usage_stats.request_events_state_check_degraded' },
+  expired: { tone: 'danger', labelKey: 'usage_stats.request_events_state_check_degraded' },
+  no_state: { tone: 'neutral', labelKey: 'usage_stats.request_events_state_check_none' },
+};
+
+export interface StateCheckPresentation {
+  tone: StateCheckTone;
+  /** 已知判定码的 i18n 标签 key；未知码为空，此时直接展示 verdictCode。 */
+  labelKey: string;
+  verdictCode: string;
+  /** 空表示该判定没有可展示的失败规则。 */
+  reasonCode: string;
+}
+
+// 空判定表示上游未上报 state，返回 null 由调用方渲染 '-'。
+export const resolveStateCheckPresentation = (stateCheck: string, stateCheckReason = ''): StateCheckPresentation | null => {
+  const verdictCode = stateCheck.trim();
+  if (!verdictCode) return null;
+  const verdict = STATE_CHECK_VERDICTS[verdictCode];
+  if (!verdict) {
+    return { tone: 'neutral', labelKey: '', verdictCode, reasonCode: '' };
+  }
+  const reasonCode = verdict.tone === 'danger'
+    ? stateCheckReason.trim() || (verdictCode === 'expired' ? 'expired' : '')
+    : '';
+  return { tone: verdict.tone, labelKey: verdict.labelKey, verdictCode, reasonCode };
+};
+
+// 未知判定码必须能在悬停中看到原始码，已知码则由行内标签自述。
+// 失败规则码到人类标签；未知码由调用方回退到 generic 标签加原始码。
+const STATE_CHECK_REASON_KEYS: Record<string, string> = {
+  encoding_length: 'usage_stats.request_events_state_check_reason_encoding_length',
+  encoding_whitespace: 'usage_stats.request_events_state_check_reason_encoding_whitespace',
+  encoding_padding: 'usage_stats.request_events_state_check_reason_encoding_padding',
+  encoding_base64: 'usage_stats.request_events_state_check_reason_encoding_base64',
+  envelope_too_short: 'usage_stats.request_events_state_check_reason_envelope_too_short',
+  envelope_version: 'usage_stats.request_events_state_check_reason_envelope_version',
+  envelope_structure: 'usage_stats.request_events_state_check_reason_envelope_structure',
+  timestamp_range: 'usage_stats.request_events_state_check_reason_timestamp_range',
+  timestamp_future: 'usage_stats.request_events_state_check_reason_timestamp_future',
+  expired: 'usage_stats.request_events_state_check_reason_expired',
+  block_mismatch: 'usage_stats.request_events_state_check_reason_block_mismatch',
+};
+
+const buildStateCheckTooltipLines = (row: RequestEventRow): string[] => {
+  const presentation = resolveStateCheckPresentation(row.stateCheck, row.stateCheckReason);
+  return presentation && !presentation.labelKey ? [presentation.verdictCode] : [];
+};
+
+const formatStateCheckReason = (
+  row: RequestEventRow,
+  presentation: StateCheckPresentation,
+  t: (key: string, options?: Record<string, string | number>) => string,
+): string => {
+  if (!presentation.reasonCode) return '';
+  const reasonKey = STATE_CHECK_REASON_KEYS[presentation.reasonCode];
+  if (!reasonKey) {
+    return t('usage_stats.request_events_state_check_reason_unknown', { code: presentation.reasonCode });
+  }
+  if (presentation.reasonCode !== 'block_mismatch') {
+    return t(reasonKey);
+  }
+  // 块数缺失时用 '-' 明确表示未上报，不把缺值当成 0。
+  return t(reasonKey, {
+    observed: row.stateCheckObservedBlocks ?? '-',
+    expected: row.stateCheckExpectedBlocks ?? '-',
+  });
 };
 
 const formatSpeedMode = (rawMode: unknown, t: (key: string) => string): string => {
@@ -564,6 +662,11 @@ export function RequestEventsDetailsCard({
       const model = modelValue || '-';
       const modelAliasValue = String(event.model_alias ?? '').trim();
       const modelAlias = modelAliasValue && modelAliasValue !== modelValue ? modelAliasValue : '-';
+      const upstreamModel = String(event.upstream_model ?? '').trim();
+      const stateCheck = String(event.state_check ?? '').trim();
+      const stateCheckReason = String(event.state_check_reason ?? '').trim();
+      const stateCheckObservedBlocks = toFiniteNumberOrNull(event.state_check_observed_blocks);
+      const stateCheckExpectedBlocks = toFiniteNumberOrNull(event.state_check_expected_blocks);
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
       const speedModeRaw = String(event.service_tier ?? '').trim() || '-';
       const responseSpeedModeRaw = String(event.response_service_tier ?? '').trim() || '-';
@@ -604,6 +707,13 @@ export function RequestEventsDetailsCard({
         apiKey,
         model,
         modelAlias,
+        modelValue,
+        upstreamModel,
+        stateCheck,
+        stateCheckReason,
+        stateCheckObservedBlocks,
+        stateCheckExpectedBlocks,
+        upstreamModelStatus: resolveUpstreamModelStatus(modelValue, upstreamModel),
         reasoningEffort,
         speedMode,
         speedModeRaw,
@@ -858,6 +968,81 @@ export function RequestEventsDetailsCard({
             <span className={styles.requestEventsStackedSecondary} title={row.modelAlias}>{row.modelAlias}</span>
           </td>
         ),
+      },
+      {
+        id: 'upstream_model',
+        label: t('usage_stats.request_events_upstream_model'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_upstream_model')}</th>,
+        renderCell: (row) => {
+          if (!row.upstreamModel) {
+            return <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>-</td>;
+          }
+          const requestModel = row.modelValue;
+          const pairLabel = requestModel
+            ? t('usage_stats.request_events_model_pair', { request: requestModel, upstream: row.upstreamModel })
+            : row.upstreamModel;
+          return (
+            <td className={styles.requestEventsStackedCell} title={pairLabel}>
+              <span className={styles.requestEventsStackedPrimary}>{pairLabel}</span>
+              <span className={styles.requestEventsUpstreamTagRow}>
+                <span
+                  className={`${styles.requestEventsStatusTag} ${row.upstreamModelStatus === 'match' ? styles.requestEventsStatusTagSuccess : styles.requestEventsStatusTagDanger}`}
+                  data-upstream-model-status={row.upstreamModelStatus}
+                >
+                  {t(row.upstreamModelStatus === 'match'
+                    ? 'usage_stats.request_events_model_match'
+                    : 'usage_stats.request_events_model_mismatch')}
+                </span>
+              </span>
+            </td>
+          );
+        },
+      },
+      {
+        id: 'state_check',
+        label: t('usage_stats.request_events_state_check'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_state_check')}</th>,
+        renderCell: (row) => {
+          const presentation = resolveStateCheckPresentation(row.stateCheck, row.stateCheckReason);
+          if (!presentation) {
+            return <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>-</td>;
+          }
+          const toneClassName = presentation.tone === 'success'
+            ? styles.requestEventsStatusTagSuccess
+            : presentation.tone === 'danger'
+              ? styles.requestEventsStatusTagDanger
+              : styles.requestEventsStatusTagNeutral;
+          const reasonLabel = formatStateCheckReason(row, presentation, t);
+          const tooltipLines = buildStateCheckTooltipLines(row);
+          return (
+            <td
+              className={`${styles.requestEventsStackedCell}`}
+              {...(tooltipLines.length > 0
+                ? {
+                  tabIndex: 0,
+                  'aria-label': tooltipLines.join('; '),
+                  onMouseEnter: (event: React.MouseEvent<HTMLTableCellElement>) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget),
+                  onMouseLeave: (event: React.MouseEvent<HTMLTableCellElement>) => handleRequestEventsTooltipMouseLeave(event.currentTarget),
+                  onFocus: (event: React.FocusEvent<HTMLTableCellElement>) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget),
+                  onBlur: (event: React.FocusEvent<HTMLTableCellElement>) => handleRequestEventsTooltipBlur(event.currentTarget),
+                }
+                : {})}
+            >
+              <span
+                className={`${styles.requestEventsStatusTag} ${toneClassName}`}
+                data-state-check={presentation.verdictCode}
+                data-state-check-tone={presentation.tone}
+              >
+                {presentation.labelKey ? t(presentation.labelKey) : presentation.verdictCode}
+              </span>
+              {reasonLabel ? (
+                <span className={styles.requestEventsStateCheckReason} data-state-check-reason={presentation.reasonCode}>
+                  {reasonLabel}
+                </span>
+              ) : null}
+            </td>
+          );
+        },
       },
       {
         id: 'reasoning_effort',

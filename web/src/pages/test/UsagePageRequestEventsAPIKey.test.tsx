@@ -60,7 +60,7 @@ describe('UsagePage top API Key request event filter', () => {
     window.history.replaceState(null, '', '/request-events');
     localStorage.setItem(TOP_KEY_STORAGE, '11');
     localStorage.setItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, JSON.stringify({
-      version: 9, filters: { model: 'gpt-5', apiKeyId: '22', source: 'source-1', result: 'failed' },
+      version: 10, filters: { model: 'gpt-5', apiKeyId: '22', source: 'source-1', result: 'failed' },
     }));
     localStorage.setItem('cli-proxy-usage-time-range-v1', '24h');
     for (const mock of [api.fetchUsageOverview, api.fetchUsageOverviewRealtime, api.fetchUsageActivity, api.fetchAnalysis, api.fetchAnalysisLatency]) {
@@ -150,7 +150,7 @@ describe('UsagePage top API Key request event filter', () => {
   });
 
   it.each([undefined, '22'])('waits for saved top key options before querying, refreshing or exporting with legacy list key %s', async (apiKeyId) => {
-    localStorage.setItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, JSON.stringify({ version: 9, filters: { model: 'gpt-5', apiKeyId } }));
+    localStorage.setItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, JSON.stringify({ version: 10, filters: { model: 'gpt-5', apiKeyId } }));
     let resolveOptions!: (value: typeof keyOptions) => void;
     api.fetchCpaApiKeyOptions.mockReturnValue(new Promise((resolve) => { resolveOptions = resolve; }));
     await render();

@@ -40,6 +40,30 @@ const HEALTH_BUCKET_COUNT = HEALTH_WINDOW_MINUTES / HEALTH_BUCKET_MINUTES
 const HEALTH_EMPTY_HEIGHT_PX = 5
 const HEALTH_REQUEST_HEIGHT_MIN_PX = 10
 const HEALTH_REQUEST_HEIGHT_RANGE_PX = 12
+// 上游模型一致率的后端契约：总样本 <= 0 时不可用，不能下降为 0% 红色。
+export type UpstreamMatchTone = 'success' | 'warning' | 'danger' | 'neutral'
+
+export const upstreamModelMatchTone = (percent: number | null): UpstreamMatchTone => {
+  if (percent === null) {
+    return 'neutral'
+  }
+  if (percent >= 90) {
+    return 'success'
+  }
+  if (percent >= 60) {
+    return 'warning'
+  }
+  return 'danger'
+}
+
+export const resolveUpstreamModelMatch = (health: UsageCredentialHealth | undefined): { percent: number | null; total: number; mismatched: number } => {
+  const total = safeCount(finiteNumber(health?.upstream_model_match_total) ?? 0)
+  const matched = Math.min(safeCount(finiteNumber(health?.upstream_model_match_matched) ?? 0), total)
+  if (total === 0) {
+    return { percent: null, total: 0, mismatched: 0 }
+  }
+  return { percent: (matched / total) * 100, total, mismatched: total - matched }
+}
 
 const healthCellStateClassName: Record<CredentialHealthBucketState, string> = {
   success: styles.credentialHealthCellSuccess,
@@ -60,6 +84,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
   const buckets = useMemo(() => buildHealthBuckets(health), [health])
   const score = resolveCredentialHealthScore(health, buckets)
   const summary = resolveCredentialHealthSummary(buckets, health, t)
+  const upstreamMatch = useMemo(() => resolveUpstreamModelMatch(health), [health])
   const lastUsed = formatCredentialHealthDate(lastUsedAt)
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
   const showWindowCacheReadRate = windowCacheReadRate !== undefined
@@ -129,6 +154,30 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
             </span>
           </div>
         )}
+        <div
+          className={styles.credentialHealthMetaCache}
+          aria-label={upstreamMatch.percent === null
+            ? `${t('usage_stats.credentials_health_upstream_model_match')}: ${t('usage_stats.credentials_health_upstream_model_match_unavailable')}`
+            : t('usage_stats.credentials_health_upstream_model_match_aria', {
+              name: displayName,
+              rate: formatCredentialPercent(upstreamMatch.percent),
+              total: upstreamMatch.total,
+              count: upstreamMatch.mismatched,
+            })}
+        >
+          <span className={styles.credentialHealthMetaCacheLabel}>{t('usage_stats.credentials_health_upstream_model_match')}</span>
+          <span className={`${styles.credentialHealthMetaCacheValue} ${credentialToneClassName('credentialMetricValue', upstreamModelMatchTone(upstreamMatch.percent))}`.trim()}>
+            {upstreamMatch.percent === null ? t('usage_stats.credentials_health_upstream_model_match_unavailable') : formatCredentialPercent(upstreamMatch.percent)}
+          </span>
+          {upstreamMatch.total > 0 && (
+            <span className={styles.credentialHealthMetaCacheSecondary}>
+              {t('usage_stats.credentials_health_upstream_model_match_sample', {
+                count: upstreamMatch.mismatched,
+                total: upstreamMatch.total,
+              })}
+            </span>
+          )}
+        </div>
         {(lastUsed || statsUpdated) && (
           <div className={styles.credentialHealthMetaTimes}>
             {lastUsed && (

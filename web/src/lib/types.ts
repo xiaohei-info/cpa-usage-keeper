@@ -297,6 +297,15 @@ export interface UsageEvent {
   service_tier?: string
   response_service_tier?: string
   executor_type?: string
+  /** 上游实际返回的模型；缺失表示上游未上报，不是“与请求一致”。 */
+  upstream_model?: string | null
+  /** 结构判定码：ok / shape_mismatch / no_state / invalid / expired；缺失表示未观察。 */
+  state_check?: string | null
+  /** 首个失败规则码；ok 与 no_state 时缺失。 */
+  state_check_reason?: string | null
+  /** 仅 block_mismatch 上报；缺失区分“未上报”与真实 0。 */
+  state_check_observed_blocks?: number | null
+  state_check_expected_blocks?: number | null
   endpoint?: string
   source: string
   source_raw?: string
@@ -412,6 +421,9 @@ export interface UsageCredentialHealth {
   input_tokens: number
   /** 窗口内 canonical cache_read_tokens 合计，缓存率的分子。 */
   cache_read_tokens: number
+  /** 上游模型一致率样本；0 表示无可用样本，必须显示为不可用而不是 0%。 */
+  upstream_model_match_total?: number
+  upstream_model_match_matched?: number
   buckets: UsageCredentialHealthBucket[]
 }
 

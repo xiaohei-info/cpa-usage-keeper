@@ -94,8 +94,9 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
-// v9 将强关联字段折叠为组合列，并加入 Executor；旧版本直接重置列设置以避免错误折叠。
-const REQUEST_EVENTS_PREFERENCES_VERSION = 9;
+// v9 将强关联字段折叠为组合列，并加入 Executor；v10 加入上游模型与 state 探查观测列。
+// 旧版本直接重置列设置，让新列以默认可见生效，而不是被旧顺序排除在新列之外。
+const REQUEST_EVENTS_PREFERENCES_VERSION = 10;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';

@@ -3287,6 +3287,58 @@
   color: var(--text-secondary);
 }
 
+// 观测列共用 Deleted 标签的胶囊形态，只按判定色切换主题变量。
+.requestEventsStatusTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: $radius-full;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.requestEventsStatusTagSuccess {
+  color: var(--success-badge-text, #065f46);
+  background: var(--success-badge-bg, #d1fae5);
+  border-color: var(--success-badge-border, #6ee7b7);
+}
+
+.requestEventsStatusTagDanger {
+  color: var(--danger-badge-text, #991b1b);
+  background: var(--danger-badge-bg, #fee2e2);
+  border-color: var(--danger-badge-border, #fca5a5);
+}
+
+.requestEventsStatusTagNeutral {
+  color: var(--text-secondary);
+}
+
+.requestEventsUpstreamTagRow {
+  display: block;
+  margin-top: 4px;
+}
+
+// 失败规则标签是审计信息，必须完整可读；覆盖 StackedCell 的单行省略。
+.requestEventsStackedCell > span.requestEventsStateCheckReason {
+  display: block;
+  max-width: 260px;
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .requestEventsTokenMetricRow,
 .requestEventsCacheMetrics {
   display: flex;
