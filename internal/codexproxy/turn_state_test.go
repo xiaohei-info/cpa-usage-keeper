@@ -77,6 +77,50 @@ func TestTurnStateOverviewKeepsAdditiveContractFields(t *testing.T) {
 	}
 }
 
+// The proxy's ticket layer emits source:"ticket" (codex-proxy 4b74a74). Before it was
+// whitelisted, a single ticket event made validateTurnState reject the WHOLE overview, so
+// turning ticket mode on silently took the Keeper status page down (P0-1).
+func TestTurnStateOverviewAcceptsTicketSource(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(string(fixture), `"source": "active"`, `"source": "ticket"`, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	got, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("ticket-source snapshot rejected: %v", err)
+	}
+	if got.Events[0].Source != "ticket" {
+		t.Fatalf("ticket source not decoded: %#v", got.Events[0].Source)
+	}
+}
+
+// The 200-event cap stays fail-closed: an over-emitting producer is fixed at the source
+// (the proxy truncates the merged list), never tolerated here.
+func TestTurnStateOverviewRejectsEventsOverCap(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot TurnStateOverview
+	if err = json.Unmarshal(fixture, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Events = make([]TurnStateEvent, 201)
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validateTurnState(data, reflect.TypeOf(TurnStateOverview{}), "") {
+		t.Fatal("201 events must be rejected: the cap is a fail-closed contract, not a tolerance")
+	}
+}
+
 func TestTurnStateOverviewAcceptsOlderSnapshotWithoutAdditiveFields(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
 	if err != nil {

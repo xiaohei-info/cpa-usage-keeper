@@ -29,6 +29,16 @@ it('accepts the additive session and event fields from the frozen contract', () 
  expect(isTurnStateOverview({ ...withFields, sessions: [{ ...withFields.sessions[0], excluded: 'yes' }] })).toBe(false);
  expect(isTurnStateOverview({ ...withFields, events: [{ ...withFields.events[0], verdict: 'Not A Code' }] })).toBe(false);
 });
+// proxy 的 ticket 层会发出 source:'ticket'（codex-proxy 4b74a74）。此前白名单只认四个
+// 通用来源，含 ticket 事件的快照会被 isTurnStateOverview 整份拒收，前端拿不到任何数据（P0-3）。
+it('accepts the ticket event source and still rejects unknown sources', () => {
+ expect(isTurnStateOverview({ ...fixture, events: [{ ...fixture.events[0], source: 'ticket' }] })).toBe(true);
+ expect(isTurnStateOverview({ ...fixture, events: [{ ...fixture.events[0], source: 'made_up' }] })).toBe(false);
+});
+// 200 上限保持 fail-closed：超量由生产端修复，Keeper 不放宽。
+it('still rejects more than 200 events', () => {
+ expect(isTurnStateOverview({ ...fixture, events: Array(201).fill(fixture.events[0]) })).toBe(false);
+});
 it('uses authenticated basepath GET and rejects missing/old/error data', async () => {
  window.__APP_BASE_PATH__ = '/keeper';
  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(fixture))); vi.stubGlobal('fetch', fetcher);

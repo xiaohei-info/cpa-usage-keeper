@@ -91,7 +91,7 @@ func validateTurnState(raw json.RawMessage, typ reflect.Type, field string) bool
 		case "fallback":
 			return s == "passthrough" || s == "strict"
 		case "source":
-			return s == "passive" || s == "active" || s == "injection" || s == "lifecycle"
+			return s == "passive" || s == "active" || s == "injection" || s == "lifecycle" || s == "ticket"
 		case "account_mode":
 			return s == "auto" || s == "personal" || s == "team"
 		case "phase", "diagnostic", "action", "result", "verdict", "code", "last_result":

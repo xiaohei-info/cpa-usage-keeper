@@ -121,7 +121,7 @@ function valid(value: unknown, type: string, field = ''): boolean {
     if (['phase', 'diagnostic', 'action', 'result', 'verdict', 'code', 'last_result'].includes(field)) return /^[a-z][a-z0-9_]{0,63}$/.test(value);
     if (field === 'plan_provenance') return ['account', 'override', 'assumed_personal'].includes(value);
     if (field === 'fingerprint') return /^[a-f0-9]{8,32}$/.test(value);
-    const enums: Record<string, string[]> = { mode: ['off', 'observe', 'replace', 'always'], fallback: ['passthrough', 'strict'], account_mode: ['auto', 'personal', 'team'], source: ['passive', 'active', 'injection', 'lifecycle'] };
+    const enums: Record<string, string[]> = { mode: ['off', 'observe', 'replace', 'always'], fallback: ['passthrough', 'strict'], account_mode: ['auto', 'personal', 'team'], source: ['passive', 'active', 'injection', 'lifecycle', 'ticket'] };
     return enums[field] ? enums[field].includes(value) : value.length > 0 || field === 'account_label';
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
