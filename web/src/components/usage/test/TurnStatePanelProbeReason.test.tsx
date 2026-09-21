@@ -87,7 +87,7 @@ it('shows the attempt split and the last update on both capture cards', async ()
   const passive = node.querySelector('[data-turn-state-passive-observed]');
   expect(passive).not.toBeNull();
   // 被动采集已按结果拆分：成功 / 未通过，与主动探测对称。
-  expect(node.textContent).toContain('turn_state.overview_observed_help');
+  expect(node.textContent).toContain('turn_state.overview_capture_split');
   // 尝试数 121、未通过 121 都要出现，且与主动探测用同一套措辞。
   expect(node.textContent).toContain('121');
   expect(passive!.textContent).toContain('121');

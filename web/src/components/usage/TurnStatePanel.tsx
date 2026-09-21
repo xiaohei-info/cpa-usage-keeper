@@ -172,9 +172,36 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
 
   const stale = snapshot && (failed || now - Date.parse(snapshot.server_time) > 90_000 || (fetched && now - Date.parse(fetched) > 90_000));
   const sessions = snapshot?.sessions ?? [];
+  const events = snapshot?.events ?? [];
   const readySessions = snapshot?.summary.ready ?? 0;
-  // 最近一次失败的会话，用于在结论卡上给出与主动探测一致的失败口径。
-  const latestFailure = sessions.find((session) => sessionFailure(session)) ?? null;
+
+  /**
+   * 按来源取最近一次失败原因。必须区分 passive / active：last_failure 是「两种来源共用的最后一个结果」，
+   * 直接拿它给被动采集卡会让主动探测的失败被当成被动采集的问题，就是错误归因。
+   * 形状先整体格式化，再一次性拼到标签后面（禁止嵌套模板）。
+   */
+  const latestFailureBySource = (source: 'passive' | 'active'): string | null => {
+    for (let index = events.length - 1; index >= 0; index--) {
+      const event = events[index];
+      if (event.source !== source) continue;
+      // 成功不是失败；discard 表示被更新的观测取代，不是质量信号。
+      if (event.action === 'accept' || SUCCESS_RESULTS.has(event.result) || event.result === 'model_unknown') continue;
+      if (event.action === 'discard') continue;
+      const label = failureLabel(event.result, event.reason);
+      if (!label) continue;
+      const comparison = formatStateComparison(
+        event.observed_blocks,
+        event.expected_blocks,
+        t,
+        stateShapeCharacters(event.observed_blocks),
+        stateShapeCharacters(event.expected_blocks),
+      );
+      return comparison ? `${label}：${comparison}` : label;
+    }
+    return null;
+  };
+  const lastActiveFailure = latestFailureBySource('active');
+  const lastPassiveFailure = latestFailureBySource('passive');
   // 最近一次观测/注入时间取所有账号模型的最近值；没有则显示“暂无”。
   const latestOf = (pick: (session: TurnStateSession) => string | null | undefined) => sessions
     .map(pick).filter((value): value is string => !!value)
@@ -199,21 +226,24 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         </Card>
         <Card title={t('turn_state.overview_probes')}>
           <strong className={styles.metric}>{formatCount(snapshot.summary.active_probes)}</strong>
-          <p>{t('turn_state.overview_probe_help', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p>
+          <p>{snapshot.summary.active_probes === 0
+            ? t('turn_state.overview_capture_none')
+            : t('turn_state.overview_capture_split', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p>
           <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastInjected, now, t) ?? t('turn_state.not_available') })}</p>
-          {latestFailure && <p className={styles.failureNote} data-turn-state-latest-failure>{sessionFailure(latestFailure)}</p>}
+          {lastActiveFailure && <p className={styles.failureNote} data-turn-state-active-failure>{lastActiveFailure}</p>}
         </Card>
-        {/* 被动采集与主动探测对称展示：尝试次数 + 成功/未通过 + 最近更新时间。
+        {/* 被动采集与主动探测对称展示：尝试次数 + 成功/未通过 + 最近更新时间 + 最近失败原因。
             它来自正常业务请求，是判断模型替换与状态的主要来源。 */}
         <Card title={t('turn_state.overview_observed')}>
           <strong className={styles.metric} data-turn-state-passive-observed>{formatCount(snapshot.summary.passive_observations)}</strong>
           <p>{snapshot.summary.passive_observations === 0
-            ? t('turn_state.overview_observed_none')
-            : t('turn_state.overview_observed_help', {
+            ? t('turn_state.overview_capture_none')
+            : t('turn_state.overview_capture_split', {
               accepted: snapshot.summary.passive_accepted ?? 0,
               rejected: snapshot.summary.passive_rejected ?? 0,
             })}</p>
           <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastObserved, now, t) ?? t('turn_state.not_available') })}</p>
+          {lastPassiveFailure && <p className={styles.failureNote} data-turn-state-passive-failure>{lastPassiveFailure}</p>}
         </Card>
         <Card title={t('turn_state.overview_substitution')}>
           <strong className={styles.metric} data-turn-state-top-substitution>

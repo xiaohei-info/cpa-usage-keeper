@@ -141,12 +141,11 @@ const STRINGS: Record<string, string> = {
   'turn_state.overview_ready': '可用 State',
   'turn_state.overview_ready_help': '当前可用于注入',
   'turn_state.overview_ready_none': '当前没有可注入的状态',
-  'turn_state.overview_probes': '最近主动探测',
+  'turn_state.overview_probes': '主动探测',
   'turn_state.overview_observed': '被动采集',
-  'turn_state.overview_observed_help': '完整响应中成功拿到 turn-state 的次数',
-  'turn_state.overview_observed_none': '尚无响应提供 State',
+  'turn_state.overview_capture_split': '成功 {{accepted}} 次 · 未通过 {{rejected}} 次',
+  'turn_state.overview_capture_none': '尚无采集记录',
   'turn_state.last_updated': '最近更新 {{time}}',
-  'turn_state.overview_probe_help': '成功 {{accepted}} · 未通过 {{rejected}}',
   'turn_state.overview_injected': '实际注入',
   'turn_state.overview_substitution': '模型替换',
   'turn_state.substitution_none': '暂无替换记录',
@@ -382,12 +381,25 @@ it('keeps the overview cards honest when nothing is ready or injected', async ()
   await act(async () => root.unmount());
 });
 
-it('surfaces the latest probe failure on the conclusion card with its whole shape', async () => {
+it('surfaces each capture card failure from its own source, never the other one', async () => {
+  // last_failure 是两种来源共用的最后一个结果；结论卡必须按事件来源取，否则会把主动探测的失败
+  // 显示成被动采集的问题。
   const { node, root } = await render({
     sessions: [session({ phase: 'collecting', last_result: 'block_mismatch', last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 } })],
-    summary: { ...fixture.summary, active_probes: 6, rejected_probes: 6 },
+    summary: { ...fixture.summary, active_probes: 6, rejected_probes: 6, passive_observations: 30, passive_accepted: 0, passive_rejected: 30 },
+    events: [
+      { id: 'p1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'passive', action: 'reject', result: 'block_mismatch', length: null, blocks: null, reason: 'block_mismatch', observed_blocks: 11, expected_blocks: 10, route_id: null, usage: null },
+      { id: 'a1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'active', action: 'reject', result: 'no_state', length: null, blocks: null, reason: null, observed_blocks: null, expected_blocks: null, route_id: null, usage: null },
+    ],
   });
-  const note = node.querySelector('[data-turn-state-latest-failure]');
-  expect(note?.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
+  // 被动采集卡说明形状不符并给出完整形状。
+  const passiveNote = node.querySelector('[data-turn-state-passive-failure]');
+  expect(passiveNote).not.toBeNull();
+  expect(passiveNote!.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
+  // 主动探测卡说明它自己的失败原因，不能复用被动采集的那条。
+  const activeNote = node.querySelector('[data-turn-state-active-failure]');
+  expect(activeNote).not.toBeNull();
+  expect(activeNote!.textContent).toContain('上游没有返回 State');
+  expect(activeNote!.textContent).not.toContain('11 块');
   await act(async () => root.unmount());
 });
