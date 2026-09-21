@@ -12,6 +12,110 @@ import (
 	"time"
 )
 
+func TestTurnStateOverviewKeepsAdditiveContractFields(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A current proxy emits the §8.2/§8.3 fields; the whitelist decoder used to drop
+	// them silently, which made every Keeper status/failure path unreachable.
+	sessionAdditive := `"excluded": false, "last_upstream_model": "gpt-5.6-luna", "model_mismatch": true, ` +
+		`"last_result": "block_mismatch", "ws_connection_reused": 30, "plan_provenance": "account", ` +
+		`"last_failure": {"code": "block_mismatch", "reason": "block_mismatch", "verdict": "shape_mismatch", ` +
+		`"observed_blocks": 11, "expected_blocks": 10}, `
+	eventAdditive := `"reason": "block_mismatch", "observed_blocks": 11, "expected_blocks": 10, ` +
+		`"upstream_model": "gpt-5.6-luna", "verdict": "shape_mismatch", `
+	// Anchor inside the session/event objects only: `account_mode` also exists in config.
+	body := strings.Replace(string(fixture), `"entry_id": "entry-1",`, sessionAdditive+`"entry_id": "entry-1",`, 1)
+	body = strings.Replace(body, `"source":`, eventAdditive+`"source":`, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	got, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("additive snapshot rejected: %v", err)
+	}
+	session := got.Sessions[0]
+	if session.Excluded == nil || *session.Excluded {
+		t.Fatalf("excluded not decoded: %#v", session.Excluded)
+	}
+	if session.LastUpstreamModel == nil || *session.LastUpstreamModel != "gpt-5.6-luna" {
+		t.Fatalf("last_upstream_model not decoded: %#v", session.LastUpstreamModel)
+	}
+	if session.ModelMismatch == nil || !*session.ModelMismatch {
+		t.Fatalf("model_mismatch not decoded: %#v", session.ModelMismatch)
+	}
+	if session.LastResult == nil || *session.LastResult != "block_mismatch" {
+		t.Fatalf("last_result not decoded: %#v", session.LastResult)
+	}
+	if session.WsConnectionReused == nil || *session.WsConnectionReused != 30 {
+		t.Fatalf("ws_connection_reused not decoded: %#v", session.WsConnectionReused)
+	}
+	if session.PlanProvenance == nil || *session.PlanProvenance != "account" {
+		t.Fatalf("plan_provenance not decoded: %#v", session.PlanProvenance)
+	}
+	if session.LastFailure == nil || session.LastFailure.ObservedBlocks == nil || *session.LastFailure.ObservedBlocks != 11 {
+		t.Fatalf("last_failure not decoded: %#v", session.LastFailure)
+	}
+	event := got.Events[0]
+	if event.Reason == nil || *event.Reason != "block_mismatch" || event.UpstreamModel == nil || *event.UpstreamModel != "gpt-5.6-luna" || event.Verdict == nil {
+		t.Fatalf("event additive fields not decoded: %#v", event)
+	}
+
+	// The re-serialized snapshot (what /api/v1/turn-state/overview serves) must keep them.
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"last_failure", "last_upstream_model", "model_mismatch", "last_result", "excluded", "plan_provenance", "upstream_model", "verdict"} {
+		if !strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("%s dropped on re-serialization", key)
+		}
+	}
+}
+
+func TestTurnStateOverviewAcceptsOlderSnapshotWithoutAdditiveFields(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(fixture)
+	}))
+	defer server.Close()
+	got, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("older snapshot rejected: %v", err)
+	}
+	if got.Sessions[0].LastFailure != nil || got.Sessions[0].Excluded != nil {
+		t.Fatal("absent additive field must stay nil, not become a value")
+	}
+}
+
+func TestTurnStateOverviewRejectsInvalidAdditiveValues(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, body string }{
+		{"bad verdict", strings.Replace(string(fixture), `"entry_id": "entry-1",`, `"last_result": "Not A Code", "entry_id": "entry-1",`, 1)},
+		{"bad plan provenance", strings.Replace(string(fixture), `"entry_id": "entry-1",`, `"plan_provenance": "guessed", "entry_id": "entry-1",`, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			if _, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background()); err == nil {
+				t.Fatal("invalid additive value must reject the snapshot")
+			}
+		})
+	}
+}
+
 func TestTurnStateOverview(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
 	if err != nil {

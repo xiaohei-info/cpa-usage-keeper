@@ -57,26 +57,62 @@ export const STATE_CHECK_REASON_LABEL_KEYS: Record<string, string> = {
 export interface StateCheckBlocks {
   observedBlocks: number | null;
   expectedBlocks: number | null;
+  /** 上游实测长度；缺省时按封套结构推导。 */
+  observedCharacters?: number | null;
+  expectedCharacters?: number | null;
 }
+
+/** 旧 producer 会直接不返回字段，undefined 必须与 null 一样当作“无数据”。 */
+const hasBlocks = (blocks: number | null | undefined): blocks is number =>
+  typeof blocks === 'number' && Number.isFinite(blocks) && blocks >= 0;
+
+/** 无数据时必须说“未观测”，绝不能格式化成 `- 块 / - 字符` 这种像数据的占位。 */
+export const STATE_SHAPE_UNOBSERVED_KEY = 'usage_stats.state_shape_unobserved';
 
 /**
  * 参考封套长度：57 字节头部 + 每块 16 字节，整体做 base64 编码。
  * 块数与字符数是一个整体，只报块数会让人以为可以单独凑块数。
  * 这是由封套结构推导出来的值，不是上游实测长度（实测长度无法可靠拿到时也不编造）。
  */
-export const stateShapeCharacters = (blocks: number | null): number | null =>
-  blocks === null || blocks < 0 ? null : 4 * Math.ceil((57 + 16 * blocks) / 3);
+export const stateShapeCharacters = (blocks: number | null | undefined): number | null =>
+  hasBlocks(blocks) ? 4 * Math.ceil((57 + 16 * blocks) / 3) : null;
 
 // 形状标签统一走这里，请求事件表、模型质量页、运行事件三处不能再各写一套顺序。
+// 返回值始终是一个完整字符串，调用方不得再把它当模板二次插值。
 export const formatStateShape = (
-  blocks: number | null,
+  blocks: number | null | undefined,
   t: (key: string, options?: Record<string, string | number>) => string,
   characters?: number | null,
-): string => t('usage_stats.state_shape', {
-    blocks: blocks ?? '-',
-    // 有实测长度就用实测，否则用封套结构推导值；两者都没有才显示 '-'。
-    characters: characters ?? stateShapeCharacters(blocks) ?? '-',
+): string => {
+  if (!hasBlocks(blocks)) return t(STATE_SHAPE_UNOBSERVED_KEY);
+  const length = typeof characters === 'number' && Number.isFinite(characters) && characters >= 0
+    ? characters
+    : stateShapeCharacters(blocks);
+  return t('usage_stats.state_shape', {
+    blocks,
+    // 实测长度缺失时用封套结构推导值；两者都没有时不会走到这里。
+    characters: length ?? '?',
   });
+};
+
+/**
+ * 对比形状：`实际 11 块 / 312 字符，目标 10 块 / 292 字符`。
+ * 先各自格式化成完整字符串，再整体插值一次；任一侧缺失时返回空串，由调用方只显示标签，
+ * 不编造半个形状。
+ */
+export const formatStateComparison = (
+  observedBlocks: number | null | undefined,
+  expectedBlocks: number | null | undefined,
+  t: (key: string, options?: Record<string, string | number>) => string,
+  observedCharacters?: number | null,
+  expectedCharacters?: number | null,
+): string => {
+  if (!hasBlocks(observedBlocks) || !hasBlocks(expectedBlocks)) return '';
+  return t('usage_stats.state_shape_comparison', {
+    observed: formatStateShape(observedBlocks, t, observedCharacters),
+    expected: formatStateShape(expectedBlocks, t, expectedCharacters),
+  });
+};
 
 /**
  * 把判定结果翻译成一行人类可读标签，块数不符时附上实际/期望块数。
@@ -94,12 +130,17 @@ export const formatStateCheckDetail = (
   if (!reasonKey) {
     return t('usage_stats.request_events_state_check_reason_unknown', { code: presentation.reasonCode });
   }
+  const label = t(reasonKey);
   if (presentation.reasonCode !== 'block_mismatch') {
-    return t(reasonKey);
+    return label;
   }
-  // 块数缺失时用 '-' 明确表示未上报，不把缺值当成 0。
-  return t(reasonKey, {
-    observed: formatStateShape(blocks.observedBlocks, t),
-    expected: formatStateShape(blocks.expectedBlocks, t),
-  });
+  // 形状先整体格式化，再一次性拼到标签后面，避免模板里嵌套模板。
+  const comparison = formatStateComparison(
+    blocks.observedBlocks,
+    blocks.expectedBlocks,
+    t,
+    blocks.observedCharacters,
+    blocks.expectedCharacters,
+  );
+  return comparison ? `${label}：${comparison}` : label;
 };

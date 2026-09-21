@@ -181,11 +181,116 @@ export function buildModelSubstitutionChartOptions(
 interface ModelSubstitutionPanelProps {
   refreshKey?: number;
   onAuthRequired?: () => void;
+  /** 外部共享的拉取控制器；提供时面板不再自己发起请求（同一屏只轮询一次）。 */
+  controller?: ModelSubstitutionController;
 }
 
 interface LatestObservationTableProps {
   rows: ModelSubstitutionCurrentRow[];
+}
+
+interface LatestObservationsProps {
+  controller: ModelSubstitutionController;
+}
+
+/** 一次拉取、两处展示（最近观测 + 历史趋势），保证同一屏上的数字不会自相矛盾。 */
+export interface ModelSubstitutionController {
+  range: ModelSubstitutionRange;
+  data: ModelSubstitutionResponse | null;
+  loading: boolean;
+  failed: boolean;
+  selectRange: (range: ModelSubstitutionRange) => void;
+}
+
+/**
+ * 模型替换数据的唯一拉取点：可见时每 30 秒重拉，隐藏即停，卸载时 abort。
+ * enabled=false 时不发起任何请求（由调用方复用同一份结果）。
+ */
+export function useModelSubstitution({ refreshKey = 0, onAuthRequired, enabled = true }: {
+  refreshKey?: number;
   onAuthRequired?: () => void;
+  enabled?: boolean;
+} = {}): ModelSubstitutionController {
+  const [range, setRange] = useState<ModelSubstitutionRange>(DEFAULT_MODEL_SUBSTITUTION_RANGE);
+  const [data, setData] = useState<ModelSubstitutionResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const auth = useRef(onAuthRequired);
+  auth.current = onAuthRequired;
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+
+  const load = useCallback(async (requestedRange: ModelSubstitutionRange) => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setLoading(true);
+    try {
+      const response = await fetchModelSubstitution(requestedRange, controller.signal);
+      if (controllerRef.current !== controller) return;
+      setData(response);
+      setFailed(false);
+    } catch (error) {
+      if (controller.signal.aborted || controllerRef.current !== controller) return;
+      setFailed(true);
+      if (error instanceof ApiError && error.status === 401) auth.current?.();
+    } finally {
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    void load(rangeRef.current);
+    return () => { controllerRef.current?.abort(); controllerRef.current = null; };
+  }, [enabled, load, refreshKey]);
+
+  // 最近观测需要比历史桶更新得快：可见时每 30 秒重拉同一接口，隐藏就停，
+  // 卸载时清理定时器。复用 load 的单飞与 abort，不会开第二条请求。
+  useEffect(() => {
+    if (!enabled) return;
+    let timer: number | undefined;
+    const stop = () => { if (timer !== undefined) { window.clearInterval(timer); timer = undefined; } };
+    const start = () => {
+      if (timer !== undefined || document.hidden) return;
+      timer = window.setInterval(() => {
+        if (document.hidden) { stop(); return; }
+        void load(rangeRef.current);
+      }, MODEL_SUBSTITUTION_POLL_MS);
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+        controllerRef.current?.abort();
+      } else {
+        void load(rangeRef.current);
+        start();
+      }
+    };
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [enabled, load]);
+
+  const selectRange = useCallback((next: ModelSubstitutionRange) => {
+    setRange(next);
+    void load(next);
+  }, [load]);
+
+  return { range, data, loading, failed, selectRange };
+}
+
+/** 只读的“最近模型观测”区块：先回答“现在谁被换成了谁”。 */
+export function LatestModelObservations({ controller }: LatestObservationsProps) {
+  const { t } = useTranslation();
+  if (!controller.data) return null;
+  return <Card title={t('turn_state.model_sub_current_title')} subtitle={t('turn_state.model_sub_current_help')}>
+    <LatestObservationTable rows={controller.data.current} />
+  </Card>;
 }
 
 /**
@@ -269,72 +374,13 @@ export function LatestObservationTable({ rows }: LatestObservationTableProps) {
  * 模型替换观测：请求模型 vs 上游模型的时间趋势与矩阵。
  * 数据来自 usage_events 历史（upstream_model 为新字段，历史行为空），因此始终显示覆盖样本量。
  */
-export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired }: ModelSubstitutionPanelProps) {
+export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired, controller }: ModelSubstitutionPanelProps) {
   const { t } = useTranslation();
   const isDark = useThemeStore((state) => state.resolvedTheme === 'dark');
   const isMobile = useMediaQuery('(max-width: 768px)');
-  const [range, setRange] = useState<ModelSubstitutionRange>(DEFAULT_MODEL_SUBSTITUTION_RANGE);
-  const [data, setData] = useState<ModelSubstitutionResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-  const controllerRef = useRef<AbortController | null>(null);
-  const auth = useRef(onAuthRequired);
-  auth.current = onAuthRequired;
-  const rangeRef = useRef(range);
-  rangeRef.current = range;
-
-  const load = useCallback(async (requestedRange: ModelSubstitutionRange) => {
-    controllerRef.current?.abort();
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    setLoading(true);
-    try {
-      const response = await fetchModelSubstitution(requestedRange, controller.signal);
-      if (controllerRef.current !== controller) return;
-      setData(response);
-      setFailed(false);
-    } catch (error) {
-      if (controller.signal.aborted || controllerRef.current !== controller) return;
-      setFailed(true);
-      if (error instanceof ApiError && error.status === 401) auth.current?.();
-    } finally {
-      if (controllerRef.current === controller) {
-        controllerRef.current = null;
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void load(rangeRef.current);
-    return () => { controllerRef.current?.abort(); controllerRef.current = null; };
-  }, [load, refreshKey]);
-
-  // 最近观测需要比历史桶更新得快：可见时每 30 秒重拉同一接口，隐藏就停，
-  // 卸载时清理定时器。复用 load 的单飞与 abort，不会开第二条请求。
-  useEffect(() => {
-    let timer: number | undefined;
-    const stop = () => { if (timer !== undefined) { window.clearInterval(timer); timer = undefined; } };
-    const start = () => {
-      if (timer !== undefined || document.hidden) return;
-      timer = window.setInterval(() => {
-        if (document.hidden) { stop(); return; }
-        void load(rangeRef.current);
-      }, MODEL_SUBSTITUTION_POLL_MS);
-    };
-    const onVisibility = () => {
-      if (document.hidden) {
-        stop();
-        controllerRef.current?.abort();
-      } else {
-        void load(rangeRef.current);
-        start();
-      }
-    };
-    start();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
-  }, [load]);
+  // 外部传入控制器时内部拉取必须关闭，否则两个 hook 会同时轮询同一接口。
+  const internal = useModelSubstitution({ refreshKey, onAuthRequired, enabled: !controller });
+  const { range, data, loading, failed, selectRange } = controller ?? internal;
 
   const series = useMemo(() => (data ? buildModelSubstitutionChartSeries(data) : []), [data]);
   const matrix = useMemo(() => (data ? buildModelSubstitutionMatrix(data) : { columns: [], rows: [] }), [data]);
@@ -362,7 +408,7 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired }: Model
               type="button"
               className={`${styles.rangeButton} ${value === (data?.range ?? range) ? styles.rangeButtonActive : ''}`.trim()}
               aria-pressed={value === (data?.range ?? range)}
-              onClick={() => { setRange(value); void load(value); }}
+              onClick={() => selectRange(value)}
             >
               {t(RANGE_LABEL_KEYS[value])}
             </button>
@@ -381,7 +427,7 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired }: Model
         {data && <section className={styles.currentSurface} aria-label={t('turn_state.model_sub_current_title')}>
           <h4 className={styles.currentTitle}>{t('turn_state.model_sub_current_title')}</h4>
           <p className={styles.coverage}>{t('turn_state.model_sub_current_help')}</p>
-          <LatestObservationTable rows={data.current} onAuthRequired={onAuthRequired} />
+          <LatestObservationTable rows={data.current} />
         </section>}
         {data && summary && <>
           <div className={styles.summaryGrid}>

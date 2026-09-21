@@ -38,9 +38,26 @@ func validateTurnState(raw json.RawMessage, typ reflect.Type, field string) bool
 		}
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)
-			key := f.Tag.Get("json")
+			tag := f.Tag.Get("json")
+			key, optional := tag, false
+			// `,omitempty` marks an additive contract field: an older producer may
+			// omit it entirely, but a present value must still validate.
+			if idx := strings.Index(tag, ","); idx >= 0 {
+				key = tag[:idx]
+				for _, opt := range strings.Split(tag[idx+1:], ",") {
+					if opt == "omitempty" {
+						optional = true
+					}
+				}
+			}
 			value, ok := obj[key]
-			if !ok || !validateTurnState(value, f.Type, key) {
+			if !ok {
+				if optional {
+					continue
+				}
+				return false
+			}
+			if !validateTurnState(value, f.Type, key) {
 				return false
 			}
 		}
@@ -77,8 +94,10 @@ func validateTurnState(raw json.RawMessage, typ reflect.Type, field string) bool
 			return s == "passive" || s == "active" || s == "injection" || s == "lifecycle"
 		case "account_mode":
 			return s == "auto" || s == "personal" || s == "team"
-		case "phase", "diagnostic", "action", "result":
+		case "phase", "diagnostic", "action", "result", "verdict", "code", "last_result":
 			return turnStateCode.MatchString(s)
+		case "plan_provenance":
+			return s == "account" || s == "override" || s == "assumed_personal"
 		case "fingerprint":
 			return turnStateFingerprint.MatchString(s)
 		case "server_time", "at", "issued_at", "expires_at", "last_observed_at", "last_injected_at", "next_probe_at":

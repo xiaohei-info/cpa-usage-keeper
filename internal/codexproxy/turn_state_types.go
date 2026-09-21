@@ -51,6 +51,25 @@ type TurnStateSession struct {
 	ObservationCount int64             `json:"observation_count"`
 	ProbeCount       int64             `json:"probe_count"`
 	Strikes          int64             `json:"strikes"`
+	// Additive contract fields (codex-proxy.turn-state-overview.v1). Optional so a
+	// snapshot from an older proxy still decodes.
+	Excluded          *bool                `json:"excluded,omitempty"`
+	LastUpstreamModel *string              `json:"last_upstream_model,omitempty"`
+	ModelMismatch     *bool                `json:"model_mismatch,omitempty"`
+	LastResult        *string              `json:"last_result,omitempty"`
+	LastFailure       *TurnStateFailure    `json:"last_failure,omitempty"`
+	WsConnectionReused *int64              `json:"ws_connection_reused,omitempty"`
+	PlanProvenance    *string              `json:"plan_provenance,omitempty"`
+}
+
+// TurnStateFailure is the structured reason the most recent probe/observation did
+// not pass, so Keeper can explain a rejection without re-deriving it.
+type TurnStateFailure struct {
+	Code           string  `json:"code"`
+	Reason         *string `json:"reason"`
+	Verdict        *string `json:"verdict"`
+	ObservedBlocks *int64  `json:"observed_blocks"`
+	ExpectedBlocks *int64  `json:"expected_blocks"`
 }
 type TurnStateSummary struct {
 	Usable      bool    `json:"usable"`
@@ -74,6 +93,12 @@ type TurnStateEvent struct {
 	Length  *int64          `json:"length"`
 	Blocks  *int64          `json:"blocks"`
 	Usage   *TurnStateUsage `json:"usage"`
+	// Additive contract fields (§8.3); optional for older proxies.
+	Reason         *string `json:"reason,omitempty"`
+	ObservedBlocks *int64  `json:"observed_blocks,omitempty"`
+	ExpectedBlocks *int64  `json:"expected_blocks,omitempty"`
+	UpstreamModel  *string `json:"upstream_model,omitempty"`
+	Verdict        *string `json:"verdict,omitempty"`
 }
 type TurnStateUsage struct {
 	InputTokens     *int64 `json:"input_tokens"`

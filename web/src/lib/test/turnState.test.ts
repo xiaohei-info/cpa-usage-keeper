@@ -13,6 +13,22 @@ it('validates frozen DTO including required unknowns and bounded arrays', () => 
  expect(isTurnStateOverview({ ...fixture, schema: 'old' })).toBe(false);
  expect(getUsageTabPath('turn-state')).toBe('/turn-state'); expect(resolveUsageTabFromPath('/turn-state')).toBe('turn-state');
 });
+// 契约 §8.2/§8.3：新字段全部可加性，旧 proxy 缺字段时快照必须仍然有效。
+it('accepts the additive session and event fields from the frozen contract', () => {
+ const withFields = {
+   ...fixture,
+   sessions: [{ ...fixture.sessions[0], excluded: false, last_upstream_model: 'gpt-5.6-luna', model_mismatch: true,
+     last_result: 'block_mismatch', ws_connection_reused: 5, plan_provenance: 'account',
+     last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 } }],
+   events: [{ ...fixture.events[0], upstream_model: 'gpt-5.6-luna', verdict: 'shape_mismatch', reason: 'block_mismatch', observed_blocks: 11, expected_blocks: 10 }],
+ };
+ expect(isTurnStateOverview(withFields)).toBe(true);
+ // 旧 payload 缺这些字段依然是有效快照。
+ expect(isTurnStateOverview(fixture)).toBe(true);
+ // 出现但取值非法时必须拒绝，不能静默当成健康数据。
+ expect(isTurnStateOverview({ ...withFields, sessions: [{ ...withFields.sessions[0], excluded: 'yes' }] })).toBe(false);
+ expect(isTurnStateOverview({ ...withFields, events: [{ ...withFields.events[0], verdict: 'Not A Code' }] })).toBe(false);
+});
 it('uses authenticated basepath GET and rejects missing/old/error data', async () => {
  window.__APP_BASE_PATH__ = '/keeper';
  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(fixture))); vi.stubGlobal('fetch', fetcher);

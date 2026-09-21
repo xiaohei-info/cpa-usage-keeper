@@ -27,7 +27,7 @@ describe('observability column translations', () => {
       'OK',
       'None',
       'Possibly degraded',
-      'Block count mismatch (observed {{observed}} / expected {{expected}})',
+      'Block count mismatch',
       'Unknown reason ({{code}})',
     ]);
     expect(labels('zh', OBSERVABILITY_KEYS)).toEqual([
@@ -38,7 +38,7 @@ describe('observability column translations', () => {
       '正常',
       '无',
       '可能降智',
-      '块数不符（实际 {{observed}} / 期望 {{expected}}）',
+      '块数不符',
       '未知原因（{{code}}）',
     ]);
     expect(labels('zh-TW', OBSERVABILITY_KEYS)).toEqual([
@@ -49,7 +49,7 @@ describe('observability column translations', () => {
       '正常',
       '無',
       '可能降智',
-      '塊數不符（實際 {{observed}} / 期望 {{expected}}）',
+      '塊數不符',
       '未知原因（{{code}}）',
     ]);
   });
@@ -80,7 +80,7 @@ describe('observability column translations', () => {
       'Timestamp out of range',
       'Timestamp abnormal',
       'Expired',
-      'Block count mismatch (observed {{observed}} / expected {{expected}})',
+      'Block count mismatch',
     ]);
     expect(labels('zh', reasonKeys)).toEqual([
       '长度超限',
@@ -93,7 +93,7 @@ describe('observability column translations', () => {
       '时间戳越界',
       '时间戳异常',
       '已过期',
-      '块数不符（实际 {{observed}} / 期望 {{expected}}）',
+      '块数不符',
     ]);
     expect(labels('zh-TW', reasonKeys)).toEqual([
       '長度超限',
@@ -106,7 +106,7 @@ describe('observability column translations', () => {
       '時間戳越界',
       '時間戳異常',
       '已過期',
-      '塊數不符（實際 {{observed}} / 期望 {{expected}}）',
+      '塊數不符',
     ]);
   });
 

@@ -35,12 +35,16 @@ async function render(events: unknown[]) {
 
 it("names the failed rule and shape for a block_mismatch probe rejection", async () => {
   const { node, root } = await render([probeEvent({})]);
-  expect(node.textContent).toContain('turn_state.event_rejected_rule');
-  // 形状是“块数 / 字符数”整体：11 块 = 312 字符，10 块 = 292 字符。
-  expect(node.textContent).toContain('"blocks\\":11');
-  expect(node.textContent).toContain('"characters\\":312');
-  expect(node.textContent).toContain('"blocks\\":10');
-  expect(node.textContent).toContain('"characters\\":292');
+  // 结论句说明规则，形状作为“块数 / 字符数”整体展示；11 块 = 312 字符，10 块 = 292 字符。
+  expect(node.textContent).toContain('turn_state.event_block_mismatch');
+  expect(node.textContent).not.toContain('turn_state.event_rejected_rule');
+  expect(node.textContent).not.toContain('{{');
+  const shape = [...node.querySelectorAll('article')].map((item) => item.textContent ?? '').join(' ');
+  expect(shape).toContain('turn_state.failure_shape');
+  expect(shape).toContain('"blocks\\":11');
+  expect(shape).toContain('"characters\\":312');
+  expect(shape).toContain('"blocks\\":10');
+  expect(shape).toContain('"characters\\":292');
   await act(async () => root.unmount());
 });
 

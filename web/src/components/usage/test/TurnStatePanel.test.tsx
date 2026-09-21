@@ -20,8 +20,9 @@ it('shows read-only snapshot, unknown usage, epoch resets and stale failure; pau
   fetcher.mockResolvedValue({ ...fixture, sessions: [{ ...fixture.sessions[0], active, ready: { ...active, version: 2 } }] } as TurnStateOverview);
   const node = document.createElement('div'); const root = createRoot(node);
   await act(async () => root.render(<TurnStatePanel />));
-  expect(node.textContent).toContain('turn_state.current'); expect(node.textContent).toContain('turn_state.unknown');
+  expect(node.textContent).toContain('turn_state.current');
   expect(node.textContent).toContain('turn_state.overview_ready');
+  // 会话卡不再展示内部枚举占位，但必须给出可读状态与备用 State 行。
   expect(node.textContent).toContain('turn_state.state_ready'); expect(node.textContent).toContain('turn_state.backup_state');
   // Turn-State 快照本身仍然只读；页面上唯一的交互控件是模型替换观测的范围选择器。
   const controls = [...node.querySelectorAll('button, input, a')];

@@ -49,6 +49,22 @@ export interface TurnStateSession {
   observation_count: number;
   probe_count: number;
   strikes: number;
+  /** 以下为可加性字段（契约 §8.2）；旧 proxy 不返回时必须仍可渲染。 */
+  excluded?: boolean;
+  last_upstream_model?: string | null;
+  model_mismatch?: boolean;
+  last_result?: string | null;
+  last_failure?: TurnStateFailure | null;
+  ws_connection_reused?: number;
+  plan_provenance?: string | null;
+}
+/** 最近一次未通过的探测/观测形状；仅在失败时由 proxy 填充。 */
+export interface TurnStateFailure {
+  code: string;
+  reason: string | null;
+  verdict: string | null;
+  observed_blocks: number | null;
+  expected_blocks: number | null;
 }
 export interface TurnStateSummary {
   usable: boolean;
@@ -76,6 +92,9 @@ export interface TurnStateEvent {
   /** 候选 state 的块数形状，用于解释 block_mismatch。 */
   observed_blocks: number | null;
   expected_blocks: number | null;
+  /** 可加性字段（契约 §8.3）：该次观测实际得到的上游模型与判定。 */
+  upstream_model?: string | null;
+  verdict?: string | null;
   usage: TurnStateUsage | null;
 }
 export interface TurnStateUsage {
@@ -84,7 +103,7 @@ export interface TurnStateUsage {
   reasoning_tokens: number | null;
 }
 
-const shapes: Record<string, Record<string, string>> = {"TurnStateOverview": {"schema": "string", "server_time": "string", "epoch": "string", "config": "TurnStateConfig", "summary": "TurnStateCounters", "sessions": "[]TurnStateSession", "events": "[]TurnStateEvent"}, "TurnStateConfig": {"enabled": "bool", "passive_enabled": "bool", "active_enabled": "bool", "mode": "string", "fallback": "string", "account_mode": "string", "ttl_seconds": "int64", "refresh_before_seconds": "int64", "probe_timeout_seconds": "int64", "cooldown_seconds": "int64", "max_attempts_per_round": "int64"}, "TurnStateCounters": {"sessions": "int64", "usable": "int64", "ready": "int64", "collecting": "int64", "expired": "int64", "blocked": "int64", "injection_count": "int64", "passive_observations": "int64", "active_probes": "int64", "accepted_probes": "int64", "rejected_probes": "int64"}, "TurnStateSession": {"entry_id": "string", "model": "string", "account_mode": "string", "phase": "string", "account_label": "*string", "diagnostic": "*string", "last_observed_at": "*string", "last_injected_at": "*string", "next_probe_at": "*string", "active": "*TurnStateSummary", "ready": "*TurnStateSummary", "injection_count": "int64", "observation_count": "int64", "probe_count": "int64", "strikes": "int64"}, "TurnStateSummary": {"usable": "bool", "length": "int64", "blocks": "int64", "version": "int64", "fingerprint": "string", "issued_at": "string", "expires_at": "string", "route_id": "*string"}, "TurnStateEvent": {"id": "string", "at": "string", "source": "string", "action": "string", "result": "string", "entry_id": "*string", "model": "*string", "route_id": "*string", "length": "*int64", "blocks": "*int64", "?reason": "?*string", "?observed_blocks": "?*int64", "?expected_blocks": "?*int64", "usage": "*TurnStateUsage"}, "TurnStateUsage": {"input_tokens": "*int64", "output_tokens": "*int64", "reasoning_tokens": "*int64"}};
+const shapes: Record<string, Record<string, string>> = {"TurnStateOverview": {"schema": "string", "server_time": "string", "epoch": "string", "config": "TurnStateConfig", "summary": "TurnStateCounters", "sessions": "[]TurnStateSession", "events": "[]TurnStateEvent"}, "TurnStateConfig": {"enabled": "bool", "passive_enabled": "bool", "active_enabled": "bool", "mode": "string", "fallback": "string", "account_mode": "string", "ttl_seconds": "int64", "refresh_before_seconds": "int64", "probe_timeout_seconds": "int64", "cooldown_seconds": "int64", "max_attempts_per_round": "int64"}, "TurnStateCounters": {"sessions": "int64", "usable": "int64", "ready": "int64", "collecting": "int64", "expired": "int64", "blocked": "int64", "injection_count": "int64", "passive_observations": "int64", "active_probes": "int64", "accepted_probes": "int64", "rejected_probes": "int64"}, "TurnStateSession": {"entry_id": "string", "model": "string", "account_mode": "string", "phase": "string", "account_label": "*string", "diagnostic": "*string", "last_observed_at": "*string", "last_injected_at": "*string", "next_probe_at": "*string", "active": "*TurnStateSummary", "ready": "*TurnStateSummary", "injection_count": "int64", "observation_count": "int64", "probe_count": "int64", "strikes": "int64", "?excluded": "?bool", "?last_upstream_model": "?*string", "?model_mismatch": "?bool", "?last_result": "?*string", "?last_failure": "?*TurnStateFailure", "?ws_connection_reused": "?int64", "?plan_provenance": "?*string"}, "TurnStateFailure": {"code": "string", "reason": "*string", "verdict": "*string", "observed_blocks": "*int64", "expected_blocks": "*int64"}, "TurnStateSummary": {"usable": "bool", "length": "int64", "blocks": "int64", "version": "int64", "fingerprint": "string", "issued_at": "string", "expires_at": "string", "route_id": "*string"}, "TurnStateEvent": {"id": "string", "at": "string", "source": "string", "action": "string", "result": "string", "entry_id": "*string", "model": "*string", "route_id": "*string", "length": "*int64", "blocks": "*int64", "?reason": "?*string", "?observed_blocks": "?*int64", "?expected_blocks": "?*int64", "?upstream_model": "?*string", "?verdict": "?*string", "usage": "*TurnStateUsage"}, "TurnStateUsage": {"input_tokens": "*int64", "output_tokens": "*int64", "reasoning_tokens": "*int64"}};
 
 function valid(value: unknown, type: string, field = ''): boolean {
   if (type.startsWith('*')) return value === null || valid(value, type.slice(1), field);
@@ -94,15 +113,22 @@ function valid(value: unknown, type: string, field = ''): boolean {
   if (type === 'string') {
     if (typeof value !== 'string' || value.length > 256 || /[\r\n\0]/.test(value)) return false;
     if (['server_time', 'at', 'issued_at', 'expires_at', 'last_observed_at', 'last_injected_at', 'next_probe_at'].includes(field)) return value.endsWith('Z') && Number.isFinite(Date.parse(value));
-    if (['phase', 'diagnostic', 'action', 'result'].includes(field)) return /^[a-z][a-z0-9_]{0,63}$/.test(value);
+    // 码类字段（含契约 §8.2/§8.3 新增的 verdict/last_result/code）必须是合法码；
+    // 非法码必须拒绝整份快照，而不是当成一个未知但可用的值。
+    if (['phase', 'diagnostic', 'action', 'result', 'verdict', 'code', 'last_result'].includes(field)) return /^[a-z][a-z0-9_]{0,63}$/.test(value);
+    if (field === 'plan_provenance') return ['account', 'override', 'assumed_personal'].includes(value);
     if (field === 'fingerprint') return /^[a-f0-9]{8,32}$/.test(value);
     const enums: Record<string, string[]> = { mode: ['off', 'observe', 'replace', 'always'], fallback: ['passthrough', 'strict'], account_mode: ['auto', 'personal', 'team'], source: ['passive', 'active', 'injection', 'lifecycle'] };
     return enums[field] ? enums[field].includes(value) : value.length > 0 || field === 'account_label';
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  // A '?' prefix marks an additive field: absent is fine (older producer), present must be valid.
-  return Object.entries(shapes[type]).every(([key, child]) => {
+  // A '?' prefix on the key marks an additive field: absent is fine (older
+  // producer), present must be valid. The prefix has to be stripped from BOTH
+  // the lookup key and the type, otherwise the payload key is never found and a
+  // present-but-invalid value would silently pass as "absent".
+  return Object.entries(shapes[type]).every(([rawKey, child]) => {
     const optional = child.startsWith('?');
+    const key = rawKey.startsWith('?') ? rawKey.slice(1) : rawKey;
     const expected = optional ? child.slice(1) : child;
     if (!Object.hasOwn(value, key)) return optional;
     return valid((value as Record<string, unknown>)[key], expected, key);

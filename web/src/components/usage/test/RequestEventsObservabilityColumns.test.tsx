@@ -132,7 +132,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
       state_check_expected_blocks: 10,
     }), UPSTREAM_COLUMN);
 
-    expect(text).toBe('Possibly degradedBlock count mismatch (observed 11 blocks / 312 chars / expected 10 blocks / 292 chars)');
+    expect(text).toBe('Possibly degradedBlock count mismatch：observed 11 blocks / 312 chars, expected 10 blocks / 292 chars');
     expect(markup).toContain('data-state-check-reason="block_mismatch"');
   });
 
@@ -144,7 +144,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
       state_check_expected_blocks: 10,
     }), UPSTREAM_COLUMN);
 
-    expect(text).toBe('Possibly degradedBlock count mismatch (observed 0 blocks / 76 chars / expected 10 blocks / 292 chars)');
+    expect(text).toBe('Possibly degradedBlock count mismatch：observed 0 blocks / 76 chars, expected 10 blocks / 292 chars');
   });
 
   it('marks missing block counts as unreported rather than zero', () => {
@@ -153,7 +153,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
       state_check_reason: 'block_mismatch',
     }), UPSTREAM_COLUMN);
 
-    expect(text).toBe('Possibly degradedBlock count mismatch (observed - blocks / - chars / expected - blocks / - chars)');
+    expect(text).toBe('Possibly degradedBlock count mismatch');
   });
 
   it('renders invalid and expired as possibly degraded with their own reason label', () => {
@@ -180,7 +180,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
     }), UPSTREAM_COLUMN);
 
     // 上游模型名直出，不再重复成 “请求 → 上游”。
-    expect(text).toBe('gpt-5.6-lunaMismatchPossibly degradedBlock count mismatch (observed 11 blocks / 312 chars / expected 10 blocks / 292 chars)');
+    expect(text).toBe('gpt-5.6-lunaMismatchPossibly degradedBlock count mismatch：observed 11 blocks / 312 chars, expected 10 blocks / 292 chars');
     expect(text).not.toContain('→');
     // 两个徽标同处一列：模型判定与 state 判定。
     expect(markup).toContain('data-upstream-model-status="mismatch"');
