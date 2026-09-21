@@ -237,6 +237,13 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
           <p>{t('turn_state.overview_probe_help', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p>
           {latestFailure && <p className={styles.failureNote} data-turn-state-latest-failure>{sessionFailure(latestFailure)}</p>}
         </Card>
+        {/* 被动采集是正常业务请求自带的观测，是判断模型替换与状态的主要来源，不能只显示主动探测。 */}
+        <Card title={t('turn_state.overview_observed')}>
+          <strong className={styles.metric} data-turn-state-passive-observed>{formatCount(snapshot.summary.passive_observations)}</strong>
+          <p>{snapshot.summary.passive_observations === 0
+            ? t('turn_state.overview_observed_none')
+            : t('turn_state.overview_observed_help')}</p>
+        </Card>
         <Card title={t('turn_state.overview_substitution')}>
           <strong className={styles.metric} data-turn-state-top-substitution>
             {topSubstitution
