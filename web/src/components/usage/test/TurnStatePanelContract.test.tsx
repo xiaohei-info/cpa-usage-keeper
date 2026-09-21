@@ -215,16 +215,16 @@ it('keeps the contract §1 block order', async () => {
       state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null }],
   };
   const { node, root } = await render({ events: [event({})] }, payload);
-  // 标题行 → 结论卡 → 配置表 → 最近观测 → 会话 → 事件 → 替换历史。
+  // 模型替换观测（含内部“最近观测”表）→ 标题/状态 → 结论卡 → 配置表 → 会话 → 事件。
   const heading = (text: string) => [...node.querySelectorAll('h3')].find((item) => item.textContent === text);
   const markers = [
+    heading('模型替换观测'),
+    node.querySelector('[data-model-subscription-current]'),
     node.querySelector('[data-turn-state-status]'),
     heading('可用 State'),
     node.querySelector('[data-turn-state-config]'),
-    node.querySelector('[data-model-subscription-current]'),
     heading('账号 / 模型状态'),
     heading('最近事件'),
-    heading('模型替换观测'),
   ];
   expect(markers.every(Boolean)).toBe(true);
   for (let index = 1; index < markers.length; index++) {

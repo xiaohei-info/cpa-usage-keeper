@@ -185,12 +185,9 @@ interface ModelSubstitutionPanelProps {
   controller?: ModelSubstitutionController;
 }
 
+// 仅供本模块的“最近观测”区块使用。
 interface LatestObservationTableProps {
   rows: ModelSubstitutionCurrentRow[];
-}
-
-interface LatestObservationsProps {
-  controller: ModelSubstitutionController;
 }
 
 /** 一次拉取、两处展示（最近观测 + 历史趋势），保证同一屏上的数字不会自相矛盾。 */
@@ -284,20 +281,11 @@ export function useModelSubstitution({ refreshKey = 0, onAuthRequired, enabled =
   return { range, data, loading, failed, selectRange };
 }
 
-/** 只读的“最近模型观测”区块：先回答“现在谁被换成了谁”。 */
-export function LatestModelObservations({ controller }: LatestObservationsProps) {
-  const { t } = useTranslation();
-  if (!controller.data) return null;
-  return <Card title={t('turn_state.model_sub_current_title')} subtitle={t('turn_state.model_sub_current_help')}>
-    <LatestObservationTable rows={controller.data.current} />
-  </Card>;
-}
-
 /**
- * 页面顶部的“最近模型观测”表：每个请求模型一行，展示最新上游应答与 state 判定。
+ * “最近模型观测”表：每个请求模型一行，展示最新上游应答与 state 判定。
  * 始终保留未观测/未知的中性呈现，不让缺失数据看起来像正常。
  */
-export function LatestObservationTable({ rows }: LatestObservationTableProps) {
+function LatestObservationTable({ rows }: LatestObservationTableProps) {
   const { t } = useTranslation();
   const unknown = t('turn_state.unknown');
 

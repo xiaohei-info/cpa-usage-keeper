@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError, fetchTurnStateOverview } from '@/lib/api';
 import type { TurnStateEvent, TurnStateFailure, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
 import { Card } from '@/components/ui/Card';
-import { ModelSubstitutionPanel, LatestModelObservations, useModelSubstitution } from './ModelSubstitutionPanel';
+import { ModelSubstitutionPanel, useModelSubstitution } from './ModelSubstitutionPanel';
 import {
   formatStateComparison,
   formatStateShape,
@@ -218,6 +218,9 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   const latestFailure = sessions.find((session) => sessionFailure(session)) ?? null;
 
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
+    {/* 模型替换观测是页面的第一结论：谁被换成了谁，优先于 proxy 运行时缓存细节。
+        它读 Keeper 自己的库，proxy 概览不可用时也必须继续渲染。 */}
+    <ModelSubstitutionPanel controller={substitution} />
     <Card title={t('turn_state.title')} subtitle={t('turn_state.updated_at', { time: dateTime(fetched, unknown) })}>
       <p role="status" className={stale ? styles.warning : styles.snapshotStatus} data-turn-state-status>
         {!snapshot ? t(failed ? 'turn_state.unavailable' : 'common.loading') : stale ? t('turn_state.stale') : t('turn_state.current')}
@@ -301,9 +304,6 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         </table>
       </Card>
 
-      {/* §1.4 最近模型观测：更新最频繁，紧跟结论与配置。 */}
-      <LatestModelObservations controller={substitution} />
-
       <Card title={t('turn_state.sessions')} subtitle={t('turn_state.session_help')}>
         {!sessions.length && <p>{t('turn_state.empty')}</p>}
         {sessions.map((session, index) => <article key={`${session.entry_id}:${session.model}:${index}`} className={styles.entry}>
@@ -381,7 +381,5 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         })}
       </Card>
     </>}
-    {/* §1.7 模型替换历史读 Keeper 自己的库，proxy 概览不可用时也必须继续渲染。 */}
-    <ModelSubstitutionPanel controller={substitution} />
   </section>;
 }
