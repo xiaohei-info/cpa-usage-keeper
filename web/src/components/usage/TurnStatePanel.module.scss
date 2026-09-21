@@ -6,6 +6,8 @@
 .overviewGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; }
 .metric { display: block; font-size: 2rem; line-height: 1.1; margin-top: .5rem; }
 .failureNote { color: var(--color-warning, #eab308); font-size: .9rem; margin: .35rem 0 0; }
+/* 卡片副行（如最近更新时间）比主要说明更弱。 */
+.cardMeta { opacity: .7; font-size: .85rem; margin: .35rem 0 0; }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .75rem; margin: .75rem 0; }
 .fields dt { opacity: .7; font-size: .85em; }
 .fields dd { margin: .25rem 0 0; overflow-wrap: anywhere; }

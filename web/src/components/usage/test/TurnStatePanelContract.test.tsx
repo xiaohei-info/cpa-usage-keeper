@@ -110,7 +110,6 @@ const STRINGS: Record<string, string> = {
   'turn_state.fingerprint': 'State 指纹',
   'turn_state.diagnostic': '原始诊断码',
   'turn_state.epoch': '运行实例',
-  'turn_state.events': '最近事件',
   'turn_state.sessions': '账号模型 State',
   'turn_state.config': '配置状态',
   'turn_state.relative_just_now': '刚刚',
@@ -146,6 +145,7 @@ const STRINGS: Record<string, string> = {
   'turn_state.overview_observed': '被动采集',
   'turn_state.overview_observed_help': '完整响应中成功拿到 turn-state 的次数',
   'turn_state.overview_observed_none': '尚无响应提供 State',
+  'turn_state.last_updated': '最近更新 {{time}}',
   'turn_state.overview_probe_help': '成功 {{accepted}} · 未通过 {{rejected}}',
   'turn_state.overview_injected': '实际注入',
   'turn_state.overview_substitution': '模型替换',
@@ -227,7 +227,6 @@ it('keeps the contract §1 block order', async () => {
     heading('可用 State'),
     node.querySelector('[data-turn-state-config]'),
     heading('账号模型 State'),
-    heading('最近事件'),
   ];
   expect(markers.every(Boolean)).toBe(true);
   for (let index = 1; index < markers.length; index++) {
@@ -312,7 +311,8 @@ it('marks an unsupported or excluded session as 不适用 with the reason', asyn
   await act(async () => root.unmount());
 });
 
-it('renders only conclusion-bearing events, hiding dispatched and reused-socket noise', async () => {
+it('no longer renders an events timeline but keeps the reused-connection counter', async () => {
+  // 事件时间线对用户没有可操作价值，已整体移除；复用连接计数仍由会话卡承载。
   const { node, root } = await render({
     events: [
       event({ id: 'dispatch', action: 'probe', result: 'dispatched', observed_blocks: null }),
@@ -321,28 +321,25 @@ it('renders only conclusion-bearing events, hiding dispatched and reused-socket 
     ],
     sessions: [session({ ws_connection_reused: 5 })],
   });
-  const events = [...node.querySelectorAll('article')].filter((article) => article.querySelector('time'));
-  expect(events).toHaveLength(1);
-  expect(events[0].textContent).toContain('State 形状不符');
-  // 复用连接改由会话卡计数承载。
+  expect(node.textContent).not.toContain('最近事件');
+  // 复用连接计数仍由会话卡承载。
   expect(node.textContent).toContain('复用已有连接');
   expect(node.textContent).toContain('5');
+  const timestamps = [...node.querySelectorAll('article time')];
+  expect(timestamps).toHaveLength(0);
   await act(async () => root.unmount());
 });
 
-it('shows the whole shape, both models and the usage units on an event', async () => {
+it('shows the failed rule and the whole shape on the session card instead of an event row', async () => {
   const { node, root } = await render({
-    events: [event({ upstream_model: 'gpt-5.6-luna', usage: { input_tokens: 16, output_tokens: 5, reasoning_tokens: 0 } })],
+    sessions: [session({
+      phase: 'collecting', last_result: 'block_mismatch',
+      last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 },
+    })],
   });
-  const article = [...node.querySelectorAll('article')].find((item) => item.querySelector('time'))!;
-  expect(article.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
-  expect(article.textContent).toContain('请求模型');
-  expect(article.textContent).toContain('gpt-6-astra');
-  expect(article.textContent).toContain('实际模型');
-  expect(article.textContent).toContain('gpt-5.6-luna');
-  expect(article.textContent).toContain('探测用量');
-  expect(article.textContent).toContain('输入 16');
-  expect(article.textContent).toContain('输出 5');
+  const failure = node.querySelector('[data-turn-state-failure]');
+  expect(failure).not.toBeNull();
+  expect(failure!.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
   await act(async () => root.unmount());
 });
 

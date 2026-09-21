@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchTurnStateOverview } from '@/lib/api';
-import type { TurnStateEvent, TurnStateFailure, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
+import type { TurnStateFailure, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
 import { Card } from '@/components/ui/Card';
 import { ModelSubstitutionPanel, useModelSubstitution } from './ModelSubstitutionPanel';
 import {
@@ -51,18 +51,8 @@ const EVENT_RESULT_KEYS: Record<string, string> = {
   model_unknown: 'turn_state.event_model_unknown',
 };
 
-const SOURCE_KEYS: Record<string, string> = {
-  active: 'turn_state.source_active',
-  passive: 'turn_state.source_passive',
-  injection: 'turn_state.source_injection',
-  lifecycle: 'turn_state.source_lifecycle',
-};
-
 /** 成功类结果不是失败，会话卡的“失败原因”行不得使用它们。 */
 const SUCCESS_RESULTS = new Set(['accepted', 'accepted_model_mismatch']);
-
-/** 只作为运行过程存在、无法给用户结论的事件不再单独占一行。 */
-const HIDDEN_RESULTS = new Set(['ws_connection_reused']);
 
 type Translate = (key: string, options?: Record<string, string | number>) => string;
 
@@ -162,7 +152,12 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   /** 会话最近一次失败原因：优先用 proxy 的结构化 last_failure，缺失时按最后结果码说明。 */
   const sessionFailure = (session: TurnStateSession): string | null => {
     const failure: TurnStateFailure | null | undefined = session.last_failure;
-    if (!failure) return failureLabel(session.last_result ?? null, null);
+    // 成功类结果不是失败，不得渲染“失败原因”行（否则成功也会显示一条未知原因）。
+    if (!failure) {
+      const result = session.last_result ?? null;
+      if (!result || SUCCESS_RESULTS.has(result) || result === 'model_unknown') return null;
+      return failureLabel(result, null);
+    }
     const label = failureLabel(failure.code ?? null, failure.reason ?? null) ?? t('turn_state.event_rule_unknown', { code: failure.code });
     // 形状先整体格式化，再一次性拼到标签后面。
     const comparison = formatStateComparison(
@@ -175,47 +170,17 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
     return comparison ? `${label}：${comparison}` : label;
   };
 
-  /** 事件结论句 + 形状详情；形状先整体格式化，再一次性拼进句子（禁止嵌套模板）。 */
-  const eventSentence = (event: TurnStateEvent) => {
-    if (event.result === 'accepted') {
-      return event.source === 'active' ? t('turn_state.event_probe_success') : t('turn_state.event_passive_success');
-    }
-    if (event.result === 'accepted_model_mismatch') {
-      return t('turn_state.event_accepted_model_mismatch', { model: event.upstream_model ?? event.model ?? unknown });
-    }
-    return failureLabel(event.result, event.reason) ?? t('turn_state.event_generic', { result: event.result });
-  };
-
-  /** 事件详情行：形状 / 模型 / 用量，全部只在有数据时渲染。 */
-  const eventDetails = (event: TurnStateEvent) => {
-    const rows: Array<{ label: string; value: string }> = [];
-    if (event.blocks !== null) rows.push({ label: t('turn_state.shape'), value: shapeWithFallbackLength(event.length, event.blocks, t) });
-    const comparison = formatStateComparison(
-      event.observed_blocks,
-      event.expected_blocks,
-      t,
-      event.length,
-      stateShapeCharacters(event.expected_blocks),
-    );
-    if (comparison && event.observed_blocks !== event.blocks) rows.push({ label: t('turn_state.failure_shape'), value: comparison });
-    if (event.model) rows.push({ label: t('turn_state.requested_model'), value: event.model });
-    if (event.upstream_model) rows.push({ label: t('turn_state.actual_model'), value: event.upstream_model });
-    if (event.usage) {
-      const parts: string[] = [];
-      if (event.usage.input_tokens !== null) parts.push(`${t('turn_state.usage_input')} ${event.usage.input_tokens}`);
-      if (event.usage.output_tokens !== null) parts.push(`${t('turn_state.usage_output')} ${event.usage.output_tokens}`);
-      if (parts.length) rows.push({ label: t('turn_state.probe_usage'), value: parts.join(' · ') });
-    }
-    return rows;
-  };
-
   const stale = snapshot && (failed || now - Date.parse(snapshot.server_time) > 90_000 || (fetched && now - Date.parse(fetched) > 90_000));
   const sessions = snapshot?.sessions ?? [];
-  const visibleEvents = (snapshot?.events ?? []).filter((event) =>
-    !HIDDEN_RESULTS.has(event.result) && !(event.action === 'probe' && event.result === 'dispatched'));
   const readySessions = snapshot?.summary.ready ?? 0;
-  // 最近一次失败的会话，用于在结论卡上给出与事件区一致的失败口径。
+  // 最近一次失败的会话，用于在结论卡上给出与主动探测一致的失败口径。
   const latestFailure = sessions.find((session) => sessionFailure(session)) ?? null;
+  // 最近一次观测/注入时间取所有账号模型的最近值；没有则显示“暂无”。
+  const latestOf = (pick: (session: TurnStateSession) => string | null | undefined) => sessions
+    .map(pick).filter((value): value is string => !!value)
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+  const lastObserved = latestOf((session) => session.last_observed_at);
+  const lastInjected = latestOf((session) => session.last_injected_at);
 
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
     {/* 模型替换观测是页面的第一结论：谁被换成了谁，优先于 proxy 运行时缓存细节。
@@ -235,14 +200,20 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         <Card title={t('turn_state.overview_probes')}>
           <strong className={styles.metric}>{formatCount(snapshot.summary.active_probes)}</strong>
           <p>{t('turn_state.overview_probe_help', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p>
+          <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastInjected, now, t) ?? t('turn_state.not_available') })}</p>
           {latestFailure && <p className={styles.failureNote} data-turn-state-latest-failure>{sessionFailure(latestFailure)}</p>}
         </Card>
-        {/* 被动采集是正常业务请求自带的观测，是判断模型替换与状态的主要来源，不能只显示主动探测。 */}
+        {/* 被动采集与主动探测对称展示：尝试次数 + 成功/未通过 + 最近更新时间。
+            它来自正常业务请求，是判断模型替换与状态的主要来源。 */}
         <Card title={t('turn_state.overview_observed')}>
           <strong className={styles.metric} data-turn-state-passive-observed>{formatCount(snapshot.summary.passive_observations)}</strong>
           <p>{snapshot.summary.passive_observations === 0
             ? t('turn_state.overview_observed_none')
-            : t('turn_state.overview_observed_help')}</p>
+            : t('turn_state.overview_observed_help', {
+              accepted: snapshot.summary.passive_accepted ?? 0,
+              rejected: snapshot.summary.passive_rejected ?? 0,
+            })}</p>
+          <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastObserved, now, t) ?? t('turn_state.not_available') })}</p>
         </Card>
         <Card title={t('turn_state.overview_substitution')}>
           <strong className={styles.metric} data-turn-state-top-substitution>
@@ -369,23 +340,6 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
             </dl>
           </details>
         </article>)}
-      </Card>
-
-      <Card title={t('turn_state.events')}>
-        {!visibleEvents.length && <p>{t('turn_state.empty')}</p>}
-        {visibleEvents.map((event, index) => {
-          const details = eventDetails(event);
-          return <article key={`${event.id}:${index}`} className={styles.event}>
-            <div className={styles.eventMain}>
-              <time>{relativeTime(event.at, now, t) ?? dateTime(event.at, unknown)}</time>
-              <span className={styles.source}>{SOURCE_KEYS[event.source] ? t(SOURCE_KEYS[event.source]) : event.source}</span>
-              <span>{eventSentence(event)}</span>
-            </div>
-            {!!details.length && <dl className={styles.eventFields}>
-              {details.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
-            </dl>}
-          </article>;
-        })}
       </Card>
     </>}
   </section>;

@@ -31,9 +31,13 @@ type TurnStateCounters struct {
 	Blocked             int64 `json:"blocked"`
 	InjectionCount      int64 `json:"injection_count"`
 	PassiveObservations int64 `json:"passive_observations"`
-	ActiveProbes        int64 `json:"active_probes"`
-	AcceptedProbes      int64 `json:"accepted_probes"`
-	RejectedProbes      int64 `json:"rejected_probes"`
+	// Additive (§8.2-like): passive attempts split by outcome so attempts are never
+	// presented as successes. Optional for older proxies.
+	PassiveAccepted *int64 `json:"passive_accepted,omitempty"`
+	PassiveRejected *int64 `json:"passive_rejected,omitempty"`
+	ActiveProbes    int64  `json:"active_probes"`
+	AcceptedProbes  int64  `json:"accepted_probes"`
+	RejectedProbes  int64  `json:"rejected_probes"`
 }
 type TurnStateSession struct {
 	EntryId          string            `json:"entry_id"`
@@ -53,13 +57,13 @@ type TurnStateSession struct {
 	Strikes          int64             `json:"strikes"`
 	// Additive contract fields (codex-proxy.turn-state-overview.v1). Optional so a
 	// snapshot from an older proxy still decodes.
-	Excluded          *bool                `json:"excluded,omitempty"`
-	LastUpstreamModel *string              `json:"last_upstream_model,omitempty"`
-	ModelMismatch     *bool                `json:"model_mismatch,omitempty"`
-	LastResult        *string              `json:"last_result,omitempty"`
-	LastFailure       *TurnStateFailure    `json:"last_failure,omitempty"`
-	WsConnectionReused *int64              `json:"ws_connection_reused,omitempty"`
-	PlanProvenance    *string              `json:"plan_provenance,omitempty"`
+	Excluded           *bool             `json:"excluded,omitempty"`
+	LastUpstreamModel  *string           `json:"last_upstream_model,omitempty"`
+	ModelMismatch      *bool             `json:"model_mismatch,omitempty"`
+	LastResult         *string           `json:"last_result,omitempty"`
+	LastFailure        *TurnStateFailure `json:"last_failure,omitempty"`
+	WsConnectionReused *int64            `json:"ws_connection_reused,omitempty"`
+	PlanProvenance     *string           `json:"plan_provenance,omitempty"`
 }
 
 // TurnStateFailure is the structured reason the most recent probe/observation did
