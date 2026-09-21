@@ -47,6 +47,7 @@ type usageEventPayload struct {
 	APIKey              string `json:"api_key,omitempty"`
 	Model               string `json:"model"`
 	ModelAlias          string `json:"model_alias,omitempty"`
+	ResponseModel       string `json:"response_model,omitempty"`
 	ReasoningEffort     string `json:"reasoning_effort,omitempty"`
 	ServiceTier         string `json:"service_tier,omitempty"`
 	ResponseServiceTier string `json:"response_service_tier,omitempty"`
@@ -68,6 +69,8 @@ type usageEventPayload struct {
 	RequestID                string                 `json:"request_id,omitempty"`
 	IsDelete                 bool                   `json:"isDelete,omitempty"`
 	Failed                   bool                   `json:"failed"`
+	StatusCode               *int                   `json:"status_code,omitempty"`
+	Stream                   *bool                  `json:"stream,omitempty"`
 	LatencyMS                int64                  `json:"latency_ms"`
 	TTFTMS                   *int64                 `json:"ttft_ms,omitempty"`
 	SpeedTPS                 *float64               `json:"speed_tps,omitempty"`
@@ -117,6 +120,7 @@ type usageEventExportPayload struct {
 	IsIdentityDeleted   bool   `json:"is_identity_deleted"`
 	Model               string `json:"model"`
 	ModelAlias          string `json:"model_alias"`
+	ResponseModel       string `json:"response_model"`
 	ReasoningEffort     string `json:"reasoning_effort"`
 	ServiceTier         string `json:"service_tier"`
 	ResponseServiceTier string `json:"response_service_tier"`
@@ -131,6 +135,8 @@ type usageEventExportPayload struct {
 	UserAgent                *string  `json:"user_agent"`
 	ExecutorType             string   `json:"executor_type"`
 	Result                   string   `json:"result"`
+	StatusCode               *int     `json:"status_code,omitempty"`
+	Stream                   *bool    `json:"stream,omitempty"`
 	Endpoint                 string   `json:"endpoint"`
 	TTFTMS                   *int64   `json:"ttft_ms"`
 	LatencyMS                int64    `json:"latency_ms"`
@@ -443,6 +449,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			APIKey:              usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
 			Model:               row.Model,
 			ModelAlias:          strings.TrimSpace(row.ModelAlias),
+			ResponseModel:       strings.TrimSpace(row.ResponseModel),
 			ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
 			ServiceTier:         strings.TrimSpace(row.ServiceTier),
 			ResponseServiceTier: strings.TrimSpace(row.ResponseServiceTier),
@@ -463,6 +470,8 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			RequestID:                strings.TrimSpace(row.RequestID),
 			IsDelete:                 isDelete,
 			Failed:                   row.Failed,
+			StatusCode:               row.StatusCode,
+			Stream:                   row.Stream,
 			LatencyMS:                row.LatencyMS,
 			TTFTMS:                   row.TTFTMS,
 			SpeedTPS:                 usageEventSpeedTPS(row),
@@ -541,6 +550,7 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 		IsIdentityDeleted:   isIdentityDeleted,
 		Model:               row.Model,
 		ModelAlias:          strings.TrimSpace(row.ModelAlias),
+		ResponseModel:       strings.TrimSpace(row.ResponseModel),
 		ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(row.ServiceTier),
 		ResponseServiceTier: strings.TrimSpace(row.ResponseServiceTier),
@@ -555,18 +565,21 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 		UserAgent:                row.UserAgent,
 		ExecutorType:             strings.TrimSpace(row.ExecutorType),
 		Result:                   result,
-		Endpoint:                 strings.TrimSpace(row.Endpoint),
-		TTFTMS:                   row.TTFTMS,
-		LatencyMS:                row.LatencyMS,
-		SpeedTPS:                 usageEventSpeedTPS(row),
-		InputTokens:              row.InputTokens,
-		OutputTokens:             row.OutputTokens,
-		ReasoningTokens:          row.ReasoningTokens,
-		CacheReadTokens:          row.CacheReadTokens,
-		CacheCreationTokens:      row.CacheCreationTokens,
-		CacheReadRate:            usageEventCacheReadRate(row),
-		TotalTokens:              row.TotalTokens,
-		CostUSD:                  row.CostUSD,
+		// 上游的 HTTP 状态码与流式标记：导出与页面必须一致，缺失会让筛选后的行看起来没有状态。
+		StatusCode:          row.StatusCode,
+		Stream:              row.Stream,
+		Endpoint:            strings.TrimSpace(row.Endpoint),
+		TTFTMS:              row.TTFTMS,
+		LatencyMS:           row.LatencyMS,
+		SpeedTPS:            usageEventSpeedTPS(row),
+		InputTokens:         row.InputTokens,
+		OutputTokens:        row.OutputTokens,
+		ReasoningTokens:     row.ReasoningTokens,
+		CacheReadTokens:     row.CacheReadTokens,
+		CacheCreationTokens: row.CacheCreationTokens,
+		CacheReadRate:       usageEventCacheReadRate(row),
+		TotalTokens:         row.TotalTokens,
+		CostUSD:             row.CostUSD,
 	}
 }
 
@@ -598,11 +611,14 @@ var usageEventsExportCSVHeader = []string{
 	"is_identity_deleted",
 	"model",
 	"model_alias",
+	"response_model",
 	"reasoning_effort",
 	"service_tier",
 	"response_service_tier",
 	"executor_type",
 	"result",
+	"status_code",
+	"stream",
 	"endpoint",
 	"ttft_ms",
 	"latency_ms",
@@ -795,11 +811,14 @@ func usageEventExportCSVRecord(event usageEventExportPayload) []string {
 		strconv.FormatBool(event.IsIdentityDeleted),
 		event.Model,
 		event.ModelAlias,
+		event.ResponseModel,
 		event.ReasoningEffort,
 		event.ServiceTier,
 		event.ResponseServiceTier,
 		event.ExecutorType,
 		event.Result,
+		formatOptionalInt(event.StatusCode),
+		formatOptionalBool(event.Stream),
 		event.Endpoint,
 		formatOptionalInt64(event.TTFTMS),
 		strconv.FormatInt(event.LatencyMS, 10),
@@ -823,6 +842,20 @@ func formatOptionalInt64(value *int64) string {
 		return ""
 	}
 	return strconv.FormatInt(*value, 10)
+}
+
+func formatOptionalInt(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
+}
+
+func formatOptionalBool(value *bool) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatBool(*value)
 }
 
 func formatOptionalCSVText(value *string) string {

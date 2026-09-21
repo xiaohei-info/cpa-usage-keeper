@@ -17,7 +17,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, reasoning_effort, service_tier, response_service_tier, executor_type, upstream_model, state_check, state_check_reason, state_check_observed_blocks, state_check_expected_blocks, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, upstream_model, state_check, state_check_reason, state_check_observed_blocks, state_check_expected_blocks, endpoint, timestamp, source, auth_index, failed, status_code, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageOverviewBoundaryEventProjectionColumns 只包含非 Custom Overview 边界卡片计算需要的字段。
 const usageOverviewBoundaryEventProjectionColumns = "api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, auth_index"
@@ -37,6 +37,7 @@ type usageEventProjection struct {
 	UserAgent           *string
 	Model               string
 	ModelAlias          *string `gorm:"column:model_alias"`
+	ResponseModel       string  `gorm:"column:response_model"`
 	ReasoningEffort     string
 	ServiceTier         string
 	ResponseServiceTier string
@@ -52,6 +53,8 @@ type usageEventProjection struct {
 	Source                   string
 	AuthIndex                string
 	Failed                   bool
+	StatusCode               *int
+	Stream                   *bool
 	Generate                 *bool
 	LatencyMS                int64
 	TTFTMS                   *int64 `gorm:"column:ttft_ms"`
@@ -260,6 +263,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 			}
 			return strings.TrimSpace(*event.ModelAlias)
 		}(),
+		ResponseModel:       strings.TrimSpace(event.ResponseModel),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(event.ServiceTier),
 		ResponseServiceTier: strings.TrimSpace(event.ResponseServiceTier),
@@ -280,6 +284,8 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		Source:                   strings.TrimSpace(event.Source),
 		AuthIndex:                strings.TrimSpace(event.AuthIndex),
 		Failed:                   event.Failed,
+		StatusCode:               event.StatusCode,
+		Stream:                   event.Stream,
 		LatencyMS:                event.LatencyMS,
 		TTFTMS:                   event.TTFTMS,
 		InputTokens:              event.InputTokens,
@@ -321,6 +327,8 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		Source:                   event.Source,
 		AuthIndex:                event.AuthIndex,
 		Failed:                   event.Failed,
+		StatusCode:               event.StatusCode,
+		Stream:                   event.Stream,
 		Generate:                 event.Generate,
 		LatencyMS:                event.LatencyMS,
 		TTFTMS:                   event.TTFTMS,

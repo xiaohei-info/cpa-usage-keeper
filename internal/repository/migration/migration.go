@@ -96,9 +96,13 @@ const (
 	migrationAddUsageEventAPIGroupKeyTimestampIndex = "20260905_usage_event_api_group_key_timestamp_index"
 	migrationAddUsageIdentityStatsReset             = "20260910_usage_identity_stats_reset"
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
+	// 上游 0918/0919 两个 additive 迁移先执行，保持与上游相同的相对顺序。
+	migrationAddUsageEventResponseModel    = "20260918_usage_event_response_model"
+	migrationAddUsageEventStreamStatusCode = "20260919_usage_event_stream_status_code"
 	// migrationCreateCodexProxyTables 创建 Codex Proxy 事件游标与去重表，仅服务新数据源。
 	migrationCreateCodexProxyTables = "20260918_create_codex_proxy_tables"
 	// migrationAddUsageEventObservabilityFields 增加上游模型与 turn-state 结构判定列，旧行保持空值。
+	// 日期最新，必须排在所有既有迁移之后。
 	migrationAddUsageEventObservabilityFields = "20260921_usage_event_observability_fields"
 )
 
@@ -247,6 +251,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventAPIGroupKeyTimestampIndex, run: addUsageEventAPIGroupKeyTimestampIndexMigration},
 		{version: migrationAddUsageIdentityStatsReset, run: addUsageIdentityStatsResetMigration},
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
+		{version: migrationAddUsageEventResponseModel, run: addUsageEventResponseModelMigration},
+		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 		// 新表 migration 使用默认单事务，schema 与版本标记必须一起提交或回滚。
 		{version: migrationCreateCodexProxyTables, run: createCodexProxyTablesMigration},
 		// 可观测性列 additive，旧行自动落空串/NULL，不回填历史数据。
