@@ -202,12 +202,20 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   };
   const lastActiveFailure = latestFailureBySource('active');
   const lastPassiveFailure = latestFailureBySource('passive');
+  /** 某个来源最近一次事件的时间：主动探测用它而非 last_injected_at（仅观察模式从不注入，后者永远是空）。 */
+  const latestEventAt = (source: 'passive' | 'active'): string | null => {
+    for (let index = events.length - 1; index >= 0; index--) {
+      if (events[index].source === source) return events[index].at;
+    }
+    return null;
+  };
+  const lastActiveAt = latestEventAt('active');
   // 最近一次观测/注入时间取所有账号模型的最近值；没有则显示“暂无”。
   const latestOf = (pick: (session: TurnStateSession) => string | null | undefined) => sessions
     .map(pick).filter((value): value is string => !!value)
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
-  const lastObserved = latestOf((session) => session.last_observed_at);
-  const lastInjected = latestOf((session) => session.last_injected_at);
+  // 被动采集优先用会话上的最近观测时间（它是权威值），回退到事件时间。
+  const lastObserved = latestOf((session) => session.last_observed_at) ?? latestEventAt('passive');
 
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
     {/* 模型替换观测是页面的第一结论：谁被换成了谁，优先于 proxy 运行时缓存细节。
@@ -229,7 +237,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
           <p>{snapshot.summary.active_probes === 0
             ? t('turn_state.overview_capture_none')
             : t('turn_state.overview_capture_split', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p>
-          <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastInjected, now, t) ?? t('turn_state.not_available') })}</p>
+          <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastActiveAt, now, t) ?? t('turn_state.not_available') })}</p>
           {lastActiveFailure && <p className={styles.failureNote} data-turn-state-active-failure>{lastActiveFailure}</p>}
         </Card>
         {/* 被动采集与主动探测对称展示：尝试次数 + 成功/未通过 + 最近更新时间 + 最近失败原因。

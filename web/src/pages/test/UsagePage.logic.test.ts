@@ -822,6 +822,7 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_auth_files',
       'translated:usage_stats.tab_ai_provider',
+      'translated:turn_state.title',
       'translated:usage_stats.tab_settings',
     ]);
   });
@@ -829,7 +830,7 @@ describe('UsagePage tab labels', () => {
   it('omits Ranking from the CPAMC embedded navigation', () => {
     const values = getUsageTabOptions((key) => key, { includeRanking: false }).map((option) => option.value);
 
-    expect(values).toEqual(['overview', 'realtime', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings']);
+    expect(values).toEqual(['overview', 'realtime', 'analysis', 'events', 'auth-files', 'ai-provider', 'turn-state', 'settings']);
   });
 });
 

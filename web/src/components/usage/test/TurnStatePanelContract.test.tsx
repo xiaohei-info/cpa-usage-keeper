@@ -310,6 +310,23 @@ it('marks an unsupported or excluded session as 不适用 with the reason', asyn
   await act(async () => root.unmount());
 });
 
+it('dates each capture card from its own events, not from the injection timestamp', async () => {
+  // 仅观察模式下从不注入，last_injected_at 恒为空；主动探测卡必须用最近一次探测事件的时间。
+  const { node, root } = await render({
+    sessions: [session({ last_observed_at: null, last_injected_at: null })],
+    summary: { ...fixture.summary, active_probes: 3, passive_observations: 5 },
+    events: [
+      { id: 'p1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'passive', action: 'reject', result: 'block_mismatch', length: null, blocks: null, reason: 'block_mismatch', observed_blocks: 11, expected_blocks: 10, route_id: null, usage: null },
+      { id: 'a1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'active', action: 'reject', result: 'incomplete', length: null, blocks: null, reason: null, observed_blocks: null, expected_blocks: null, route_id: null, usage: null },
+    ],
+  });
+  const text = node.textContent ?? '';
+  // 两张卡都必须给出时间（STRINGS 把 last_updated 译成“最近更新 {{time}}”），不能是“暂无”。
+  expect((text.match(/最近更新/g) ?? []).length).toBe(2);
+  expect(text).not.toContain('最近更新 暂无');
+  await act(async () => root.unmount());
+});
+
 it('no longer renders an events timeline but keeps the reused-connection counter', async () => {
   // 事件时间线对用户没有可操作价值，已整体移除；复用连接计数仍由会话卡承载。
   const { node, root } = await render({

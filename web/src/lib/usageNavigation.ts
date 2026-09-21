@@ -6,8 +6,8 @@ export const USAGE_TAB_OPTIONS = [
   'events',
   'auth-files',
   'ai-provider',
-  'settings',
   'turn-state',
+  'settings',
 ] as const;
 
 export type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];

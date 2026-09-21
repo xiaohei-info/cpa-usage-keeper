@@ -836,7 +836,7 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usageNavigationSource).toMatch(/USAGE_TAB_OPTIONS = \[\s*'overview',\s*'realtime',\s*'analysis',\s*'ranking',\s*'events',\s*'auth-files',\s*'ai-provider',\s*'settings',\s*\] as const/)
+    expect(usageNavigationSource).toMatch(/USAGE_TAB_OPTIONS = \[\s*'overview',\s*'realtime',\s*'analysis',\s*'ranking',\s*'events',\s*'auth-files',\s*'ai-provider',\s*'turn-state',\s*'settings',\s*\] as const/)
   })
 
   it('keeps update checks and Sign out in the shared header menu', () => {
