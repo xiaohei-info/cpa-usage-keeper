@@ -217,3 +217,123 @@ func TestModelSubstitutionUnconfiguredProviderStillReturnsEmptySnapshot(t *testi
 		t.Fatalf("unexpected unconfigured payload: %+v", payload)
 	}
 }
+
+func TestModelSubstitutionSerialisesCurrentObservations(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 30, 0, 0, time.Local)
+	window, err := repository.ParseModelSubstitutionWindow("1h", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedBlocks := int64(11)
+	expectedBlocks := int64(10)
+	provider := &modelSubstitutionStub{snapshot: repository.ModelSubstitutionSnapshot{
+		Window:  window,
+		Summary: repository.UpstreamModelMatchStats{Total: 2, Matched: 1},
+		Buckets: []repository.ModelSubstitutionBucket{{Start: window.BucketStarts[0]}},
+		// 最近观测：一行被替换并带判定细节，一行一致且判定 ok，一行未上报 state。
+		Current: []repository.ModelSubstitutionCurrentObservation{
+			{
+				RequestedModel: "gpt-6-astra", UpstreamModel: "gpt-5.6-luna", Matched: false,
+				ObservedAt: now.Add(-5 * time.Minute), AccountEntryID: "acct-1",
+				StateCheck: "shape_mismatch", StateCheckReason: "block_mismatch",
+				StateCheckObservedBlocks: &observedBlocks, StateCheckExpectedBlocks: &expectedBlocks,
+			},
+			{
+				RequestedModel: "gpt-5.6-sol", UpstreamModel: "gpt-5.6-sol", Matched: true,
+				ObservedAt: now.Add(-2 * time.Minute), StateCheck: "ok",
+			},
+			{
+				// 未上报 state：字段必须是 null，而不是空串被读成正常。
+				RequestedModel: "gpt-5.6-terra", UpstreamModel: "gpt-5.6-luna", Matched: false,
+				ObservedAt: now.Add(-1 * time.Minute),
+			},
+		},
+	}}
+	sessions, _, router := modelSubstitutionTestRouter(t, provider)
+	admin, _, err := sessions.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/keeper/api/v1/turn-state/model-mismatch?range=1h", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: admin})
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	// 用原始 JSON 断言 null 语义：结构体反序列化无法区分 null 与空串。
+	var raw struct {
+		Current []map[string]any `json:"current"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw payload: %v", err)
+	}
+	if len(raw.Current) != 3 {
+		t.Fatalf("expected 3 current rows, got %d: %+v", len(raw.Current), raw.Current)
+	}
+
+	first := raw.Current[0]
+	if first["requested_model"] != "gpt-6-astra" || first["upstream_model"] != "gpt-5.6-luna" || first["matched"] != false {
+		t.Fatalf("unexpected first current row: %+v", first)
+	}
+	if first["state_check"] != "shape_mismatch" || first["state_check_reason"] != "block_mismatch" {
+		t.Fatalf("state check not carried: %+v", first)
+	}
+	if first["state_check_observed_blocks"] != float64(11) || first["state_check_expected_blocks"] != float64(10) {
+		t.Fatalf("block detail not carried: %+v", first)
+	}
+	if first["account_entry_id"] != "acct-1" {
+		t.Fatalf("account entry id not carried: %+v", first)
+	}
+	// age_seconds 由服务端相对 now 计算，必须是非负整数而不是字符串。
+	age, ok := first["age_seconds"].(float64)
+	if !ok || age < 0 {
+		t.Fatalf("expected a non-negative numeric age, got %#v", first["age_seconds"])
+	}
+	if observed, ok := first["observed_at"].(string); !ok || observed == "" {
+		t.Fatalf("expected an observed_at string, got %#v", first["observed_at"])
+	}
+
+	// 未上报 state 的行必须是显式 null。
+	third := raw.Current[2]
+	if value, present := third["state_check"]; !present || value != nil {
+		t.Fatalf("expected a null state_check for an unreported row, got %#v", value)
+	}
+	if value, present := third["state_check_reason"]; !present || value != nil {
+		t.Fatalf("expected a null state_check_reason for an unreported row, got %#v", value)
+	}
+	if value, present := third["account_entry_id"]; !present || value != nil {
+		t.Fatalf("expected a null account_entry_id when unset, got %#v", value)
+	}
+}
+
+func TestModelSubstitutionEmptySnapshotReturnsEmptyCurrentArray(t *testing.T) {
+	provider := &modelSubstitutionStub{}
+	sessions, _, router := modelSubstitutionTestRouter(t, provider)
+	admin, _, err := sessions.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/keeper/api/v1/turn-state/model-mismatch?range=24h", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: admin})
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	var payload modelSubstitutionResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	// 必须是空数组而不是 null，前端才能直接渲染空状态。
+	if payload.Current == nil || len(payload.Current) != 0 {
+		t.Fatalf("expected an empty current array, got %#v", payload.Current)
+	}
+}
+
+func TestModelSubstitutionAgeSecondsClampsNegativeToZero(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 30, 0, 0, time.Local)
+	// 上游时间戳晚于本机时钟时，年龄必须是 0 而不是负数。
+	if got := modelSubstitutionAgeSeconds(now.Add(time.Minute), now); got != 0 {
+		t.Fatalf("expected negative age to clamp to 0, got %d", got)
+	}
+	if got := modelSubstitutionAgeSeconds(now.Add(-90*time.Second), now); got != 90 {
+		t.Fatalf("expected 90 seconds, got %d", got)
+	}
+}

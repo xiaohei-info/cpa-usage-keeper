@@ -4,6 +4,7 @@ import { ApiError, fetchTurnStateOverview } from '@/lib/api';
 import type { TurnStateEvent, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
 import { Card } from '@/components/ui/Card';
 import { ModelSubstitutionPanel } from './ModelSubstitutionPanel';
+import { formatStateShape, resolveStateCheckPresentation, STATE_CHECK_REASON_LABEL_KEYS } from '@/utils/usage/stateCheck';
 import styles from './TurnStatePanel.module.scss';
 
 const dateTime = (value: string | null, unknown: string): string => {
@@ -59,11 +60,32 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   const statusClass = (session: TurnStateSession) => session.active?.usable ? styles.good : styles.muted;
   const sessionLabel = (session: TurnStateSession) => session.account_label || session.entry_id.slice(0, 12);
   const eventSentence = (event: TurnStateEvent) => {
+    // Reuse the shared state-check labels so a probe rejection names the same rule the request
+    // events table shows instead of a generic "probe failed".
+    const ruleLabel = () => {
+      const code = event.reason ?? event.result;
+      const presentation = resolveStateCheckPresentation('shape_mismatch', code);
+      const key = presentation?.reasonCode && STATE_CHECK_REASON_LABEL_KEYS[presentation.reasonCode];
+      const label = key ? t(key) : t('turn_state.event_rule_generic', { code });
+      if (!key) return label;
+      return t('turn_state.event_rejected_rule', {
+        rule: label,
+        observed: formatStateShape(event.observed_blocks ?? null, t),
+        expected: formatStateShape(event.expected_blocks ?? null, t),
+      });
+    };
     if (event.result === 'ws_connection_reused') return t('turn_state.event_ws_skipped', { model: event.model ?? unknown });
     if (event.result === 'accepted') return event.source === 'active' ? t('turn_state.event_probe_success') : t('turn_state.event_passive_success');
+    // A model mismatch that still passed every structural rule is an accepted observation.
+    if (event.result === 'accepted_model_mismatch') return t('turn_state.event_accepted_model_mismatch', { model: event.model ?? unknown });
     if (event.result === 'dispatched') return t('turn_state.event_probe_started');
-    if (event.result === 'shape_mismatch') return t('turn_state.event_shape_mismatch');
     if (event.result === 'budget_exhausted') return t('turn_state.event_budget_exhausted');
+    if (event.result === 'no_state') return t('turn_state.event_no_state');
+    if (event.result === 'incomplete') return t('turn_state.event_incomplete');
+    if (event.result === 'model_unknown') return t('turn_state.event_model_unknown');
+    if (event.result === 'auth_blocked' || event.result === 'quota_blocked') return t(`turn_state.event_${event.result}`);
+    // Any structural rule rejection reports which rule failed and the shape it observed.
+    if (STATE_CHECK_REASON_LABEL_KEYS[event.reason ?? event.result] || event.reason) return ruleLabel();
     return t('turn_state.event_generic', { result: event.result });
   };
   const stale = snapshot && (failed || now - Date.parse(snapshot.server_time) > 90_000 || (fetched && now - Date.parse(fetched) > 90_000));
@@ -100,7 +122,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
           <div className={styles.sessionHeader}><div><h4>{sessionLabel(session)} · {session.model}</h4><p className={styles.subtle}>{t('turn_state.account_rule')}: {session.account_mode}</p></div><span className={`${styles.badge} ${statusClass(session)}`}>{statusText(session)}</span></div>
           <dl className={styles.fields}>
             <div><dt>{t('turn_state.current_state')}</dt><dd>{session.active?.usable ? t('turn_state.state_ready') : t('turn_state.state_unavailable')}</dd></div>
-            {session.active && <><div><dt>{t('turn_state.shape')}</dt><dd>{session.active.length} {t('turn_state.characters')} / {session.active.blocks} {t('turn_state.blocks_short')}</dd></div><div><dt>{t('turn_state.remaining_ttl')}</dt><dd>{Math.floor(remaining(session.active) / 60)} {t('turn_state.minutes')}</dd></div></>}
+            {session.active && <><div><dt>{t('turn_state.shape')}</dt><dd>{formatStateShape(session.active.blocks, t, session.active.length)}</dd></div><div><dt>{t('turn_state.remaining_ttl')}</dt><dd>{Math.floor(remaining(session.active) / 60)} {t('turn_state.minutes')}</dd></div></>}
             <div><dt>{t('turn_state.last_observation')}</dt><dd>{formatDate(session.last_observed_at)}</dd></div>
             <div><dt>{t('turn_state.last_injection')}</dt><dd>{formatDate(session.last_injected_at)}</dd></div>
             <div><dt>{t('turn_state.backup_state')}</dt><dd>{session.ready?.usable ? t('turn_state.available') : t('turn_state.none')}</dd></div>
@@ -110,7 +132,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
       </Card>
       <Card title={t('turn_state.events')} subtitle={t('turn_state.event_help')}>
         {!snapshot.events.length && <p>{t('turn_state.empty')}</p>}
-        {snapshot.events.map((event, index) => <article key={`${event.id}:${index}`} className={styles.event}><div className={styles.eventMain}><time>{dateTime(event.at, unknown)}</time><span>{eventSentence(event)}</span></div><details><summary>{t('turn_state.technical_details')}</summary><dl className={styles.fields}><div><dt>{t('turn_state.model')}</dt><dd>{event.model ?? unknown}</dd></div>{event.length != null && <div><dt>{t('turn_state.shape')}</dt><dd>{event.length} {t('turn_state.characters')} / {event.blocks} {t('turn_state.blocks_short')}</dd></div>}{event.usage && <div><dt>{t('turn_state.probe_usage')}</dt><dd>{event.usage.input_tokens ?? unknown} / {event.usage.output_tokens ?? unknown} {t('turn_state.tokens')}</dd></div>}</dl></details></article>)}
+        {snapshot.events.map((event, index) => <article key={`${event.id}:${index}`} className={styles.event}><div className={styles.eventMain}><time>{dateTime(event.at, unknown)}</time><span>{eventSentence(event)}</span></div><details><summary>{t('turn_state.technical_details')}</summary><dl className={styles.fields}><div><dt>{t('turn_state.model')}</dt><dd>{event.model ?? unknown}</dd></div>{event.length != null && <div><dt>{t('turn_state.shape')}</dt><dd>{formatStateShape(event.blocks, t, event.length)}</dd></div>}{event.usage && <div><dt>{t('turn_state.probe_usage')}</dt><dd>{event.usage.input_tokens ?? unknown} / {event.usage.output_tokens ?? unknown} {t('turn_state.tokens')}</dd></div>}</dl></details></article>)}
       </Card>
     </>}
   </section>;

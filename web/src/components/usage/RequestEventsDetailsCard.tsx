@@ -376,57 +376,17 @@ export const resolveUpstreamModelStatus = (requestModel: string, upstreamModel: 
   return requestModel === upstreamModel ? 'match' : 'mismatch';
 };
 
-export type StateCheckTone = 'success' | 'danger' | 'neutral';
-
-// 判定码到展示色与标签的映射；未知码必须落到 neutral，永远不能是绿色。
-// shape_mismatch / invalid / expired 共用“可能降智”标签，失败规则由 reason 行说明。
-const STATE_CHECK_VERDICTS: Record<string, { tone: StateCheckTone; labelKey: string }> = {
-  ok: { tone: 'success', labelKey: 'usage_stats.request_events_state_check_ok' },
-  shape_mismatch: { tone: 'danger', labelKey: 'usage_stats.request_events_state_check_degraded' },
-  invalid: { tone: 'danger', labelKey: 'usage_stats.request_events_state_check_degraded' },
-  expired: { tone: 'danger', labelKey: 'usage_stats.request_events_state_check_degraded' },
-  no_state: { tone: 'neutral', labelKey: 'usage_stats.request_events_state_check_none' },
-};
-
-export interface StateCheckPresentation {
-  tone: StateCheckTone;
-  /** 已知判定码的 i18n 标签 key；未知码为空，此时直接展示 verdictCode。 */
-  labelKey: string;
-  verdictCode: string;
-  /** 空表示该判定没有可展示的失败规则。 */
-  reasonCode: string;
-}
-
-// 空判定表示上游未上报 state，返回 null 由调用方渲染 '-'。
-export const resolveStateCheckPresentation = (stateCheck: string, stateCheckReason = ''): StateCheckPresentation | null => {
-  const verdictCode = stateCheck.trim();
-  if (!verdictCode) return null;
-  const verdict = STATE_CHECK_VERDICTS[verdictCode];
-  if (!verdict) {
-    return { tone: 'neutral', labelKey: '', verdictCode, reasonCode: '' };
-  }
-  const reasonCode = verdict.tone === 'danger'
-    ? stateCheckReason.trim() || (verdictCode === 'expired' ? 'expired' : '')
-    : '';
-  return { tone: verdict.tone, labelKey: verdict.labelKey, verdictCode, reasonCode };
-};
+// 判定展示逻辑已抽到 utils/usage/stateCheck.ts，与模型质量页的“最近观测”共用同一份映射；
+// 这里保留 re-export，避免既有调用方与测试改动导入路径。
+export type { StateCheckTone, StateCheckPresentation } from '@/utils/usage/stateCheck';
+export { resolveStateCheckPresentation } from '@/utils/usage/stateCheck';
+import {
+  formatStateCheckDetail,
+  resolveStateCheckPresentation,
+  type StateCheckPresentation,
+} from '@/utils/usage/stateCheck';
 
 // 未知判定码必须能在悬停中看到原始码，已知码则由行内标签自述。
-// 失败规则码到人类标签；未知码由调用方回退到 generic 标签加原始码。
-const STATE_CHECK_REASON_KEYS: Record<string, string> = {
-  encoding_length: 'usage_stats.request_events_state_check_reason_encoding_length',
-  encoding_whitespace: 'usage_stats.request_events_state_check_reason_encoding_whitespace',
-  encoding_padding: 'usage_stats.request_events_state_check_reason_encoding_padding',
-  encoding_base64: 'usage_stats.request_events_state_check_reason_encoding_base64',
-  envelope_too_short: 'usage_stats.request_events_state_check_reason_envelope_too_short',
-  envelope_version: 'usage_stats.request_events_state_check_reason_envelope_version',
-  envelope_structure: 'usage_stats.request_events_state_check_reason_envelope_structure',
-  timestamp_range: 'usage_stats.request_events_state_check_reason_timestamp_range',
-  timestamp_future: 'usage_stats.request_events_state_check_reason_timestamp_future',
-  expired: 'usage_stats.request_events_state_check_reason_expired',
-  block_mismatch: 'usage_stats.request_events_state_check_reason_block_mismatch',
-};
-
 const buildStateCheckTooltipLines = (row: RequestEventRow): string[] => {
   const presentation = resolveStateCheckPresentation(row.stateCheck, row.stateCheckReason);
   return presentation && !presentation.labelKey ? [presentation.verdictCode] : [];
@@ -437,19 +397,12 @@ const formatStateCheckReason = (
   presentation: StateCheckPresentation,
   t: (key: string, options?: Record<string, string | number>) => string,
 ): string => {
+  // 判定与规则标签由共享工具产出，块数细节也走同一条路径。
   if (!presentation.reasonCode) return '';
-  const reasonKey = STATE_CHECK_REASON_KEYS[presentation.reasonCode];
-  if (!reasonKey) {
-    return t('usage_stats.request_events_state_check_reason_unknown', { code: presentation.reasonCode });
-  }
-  if (presentation.reasonCode !== 'block_mismatch') {
-    return t(reasonKey);
-  }
-  // 块数缺失时用 '-' 明确表示未上报，不把缺值当成 0。
-  return t(reasonKey, {
-    observed: row.stateCheckObservedBlocks ?? '-',
-    expected: row.stateCheckExpectedBlocks ?? '-',
-  });
+  return formatStateCheckDetail(row.stateCheck, row.stateCheckReason, {
+    observedBlocks: row.stateCheckObservedBlocks,
+    expectedBlocks: row.stateCheckExpectedBlocks,
+  }, t);
 };
 
 const formatSpeedMode = (rawMode: unknown, t: (key: string) => string): string => {
@@ -973,50 +926,40 @@ export function RequestEventsDetailsCard({
         id: 'upstream_model',
         label: t('usage_stats.request_events_upstream_model'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_upstream_model')}</th>,
+        // 上游模型与 state 判定合成一列：两列都只在“上游是否真的按请求作答”上有意义，
+        // 拆开会重复展示同一个上游事实，且请求模型已在 Model 列给出，这里不再拼 -> 链接。
         renderCell: (row) => {
-          if (!row.upstreamModel) {
-            return <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>-</td>;
-          }
-          const requestModel = row.modelValue;
-          const pairLabel = requestModel
-            ? t('usage_stats.request_events_model_pair', { request: requestModel, upstream: row.upstreamModel })
-            : row.upstreamModel;
-          return (
-            <td className={styles.requestEventsStackedCell} title={pairLabel}>
-              <span className={styles.requestEventsStackedPrimary}>{pairLabel}</span>
-              <span className={styles.requestEventsUpstreamTagRow}>
-                <span
-                  className={`${styles.requestEventsStatusTag} ${row.upstreamModelStatus === 'match' ? styles.requestEventsStatusTagSuccess : styles.requestEventsStatusTagDanger}`}
-                  data-upstream-model-status={row.upstreamModelStatus}
-                >
-                  {t(row.upstreamModelStatus === 'match'
-                    ? 'usage_stats.request_events_model_match'
-                    : 'usage_stats.request_events_model_mismatch')}
-                </span>
-              </span>
-            </td>
-          );
-        },
-      },
-      {
-        id: 'state_check',
-        label: t('usage_stats.request_events_state_check'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_state_check')}</th>,
-        renderCell: (row) => {
+          const upstreamModel = row.upstreamModel;
           const presentation = resolveStateCheckPresentation(row.stateCheck, row.stateCheckReason);
-          if (!presentation) {
+          if (!upstreamModel && !presentation) {
             return <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>-</td>;
           }
-          const toneClassName = presentation.tone === 'success'
+          const modelToneClassName = row.upstreamModelStatus === 'match'
             ? styles.requestEventsStatusTagSuccess
-            : presentation.tone === 'danger'
+            : row.upstreamModelStatus === 'mismatch'
               ? styles.requestEventsStatusTagDanger
               : styles.requestEventsStatusTagNeutral;
-          const reasonLabel = formatStateCheckReason(row, presentation, t);
-          const tooltipLines = buildStateCheckTooltipLines(row);
+          const modelResultLabel = t(row.upstreamModelStatus === 'match'
+            ? 'usage_stats.request_events_model_match'
+            : row.upstreamModelStatus === 'mismatch'
+              ? 'usage_stats.request_events_model_mismatch'
+              : 'usage_stats.request_events_model_unobserved');
+          const stateToneClassName = presentation
+            ? presentation.tone === 'success'
+              ? styles.requestEventsStatusTagSuccess
+              : presentation.tone === 'danger'
+                ? styles.requestEventsStatusTagDanger
+                : styles.requestEventsStatusTagNeutral
+            : '';
+          const reasonLabel = presentation ? formatStateCheckReason(row, presentation, t) : '';
+          const tooltipLines = [
+            ...(upstreamModel ? [t('usage_stats.request_events_model_pair', { request: row.modelValue, upstream: upstreamModel })] : []),
+            ...buildStateCheckTooltipLines(row),
+            ...(reasonLabel ? [reasonLabel] : []),
+          ];
           return (
             <td
-              className={`${styles.requestEventsStackedCell}`}
+              className={styles.requestEventsStackedCell}
               {...(tooltipLines.length > 0
                 ? {
                   tabIndex: 0,
@@ -1028,15 +971,22 @@ export function RequestEventsDetailsCard({
                 }
                 : {})}
             >
-              <span
-                className={`${styles.requestEventsStatusTag} ${toneClassName}`}
-                data-state-check={presentation.verdictCode}
-                data-state-check-tone={presentation.tone}
-              >
-                {presentation.labelKey ? t(presentation.labelKey) : presentation.verdictCode}
+              {upstreamModel
+                ? <span className={styles.requestEventsStackedPrimary} title={upstreamModel}>{upstreamModel}</span>
+                : null}
+              <span className={styles.requestEventsUpstreamTagRow}>
+                {upstreamModel ? <span
+                  className={`${styles.requestEventsStatusTag} ${modelToneClassName}`}
+                  data-upstream-model-status={row.upstreamModelStatus}
+                >{modelResultLabel}</span> : null}
+                {presentation ? <span
+                  className={`${styles.requestEventsStatusTag} ${stateToneClassName}`}
+                  data-state-check={presentation.verdictCode}
+                  data-state-check-tone={presentation.tone}
+                >{presentation.labelKey ? t(presentation.labelKey) : presentation.verdictCode}</span> : null}
               </span>
               {reasonLabel ? (
-                <span className={styles.requestEventsStateCheckReason} data-state-check-reason={presentation.reasonCode}>
+                <span className={styles.requestEventsStateCheckReason} data-state-check-reason={presentation?.reasonCode}>
                   {reasonLabel}
                 </span>
               ) : null}

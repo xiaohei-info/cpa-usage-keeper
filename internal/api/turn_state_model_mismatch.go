@@ -25,6 +25,8 @@ type modelSubstitutionResponse struct {
 	Series        []modelSubstitutionPoint        `json:"series"`
 	Matrix        []modelSubstitutionMatrixRow    `json:"matrix"`
 	Substitutions []modelSubstitutionRequestedRow `json:"substitutions"`
+	// Current 是每个请求模型在所选范围内最近一次观测，供页面顶部实时表使用。
+	Current []modelSubstitutionCurrentRow `json:"current"`
 	// Truncated 表示矩阵单元格命中上限被截断，前端据此提示样本不完整。
 	Truncated bool `json:"truncated"`
 }
@@ -72,6 +74,22 @@ type modelSubstitutionRequestedRow struct {
 	MatchRate         *float64 `json:"match_rate"`
 }
 
+// modelSubstitutionCurrentRow 是页面顶部“最近模型观测”表的一行。
+// AgeSeconds 由服务端相对 now 计算并夹紧到 >=0，避免前端用错误时钟得出负时长；
+// state 字段用指针区分“未上报”与空串。
+type modelSubstitutionCurrentRow struct {
+	RequestedModel           string  `json:"requested_model"`
+	UpstreamModel            string  `json:"upstream_model"`
+	Matched                  bool    `json:"matched"`
+	ObservedAt               string  `json:"observed_at"`
+	AgeSeconds               int64   `json:"age_seconds"`
+	StateCheck               *string `json:"state_check"`
+	StateCheckReason         *string `json:"state_check_reason"`
+	StateCheckObservedBlocks *int64  `json:"state_check_observed_blocks"`
+	StateCheckExpectedBlocks *int64  `json:"state_check_expected_blocks"`
+	AccountEntryID           *string `json:"account_entry_id"`
+}
+
 // registerModelSubstitutionRoute 挂在 admin group 下；只读，不接受任何变更方法。
 func registerModelSubstitutionRoute(router gin.IRoutes, provider ModelSubstitutionProvider) {
 	router.GET("/turn-state/model-mismatch", func(c *gin.Context) {
@@ -84,19 +102,22 @@ func registerModelSubstitutionRoute(router gin.IRoutes, provider ModelSubstituti
 				return
 			}
 			// provider 未配置时仍返回合法空快照，前端无需区分“未配置”和“暂无数据”。
-			c.JSON(http.StatusOK, buildModelSubstitutionResponse(repository.EmptyModelSubstitutionSnapshot(window)))
+			c.JSON(http.StatusOK, buildModelSubstitutionResponse(repository.EmptyModelSubstitutionSnapshot(window), time.Now()))
 			return
 		}
-		snapshot, err := provider.ModelSubstitution(c.Request.Context(), requestedRange, time.Now())
+		now := time.Now()
+		snapshot, err := provider.ModelSubstitution(c.Request.Context(), requestedRange, now)
 		if err != nil {
 			writeInternalError(c, "get model substitution snapshot failed", err)
 			return
 		}
-		c.JSON(http.StatusOK, buildModelSubstitutionResponse(snapshot))
+		c.JSON(http.StatusOK, buildModelSubstitutionResponse(snapshot, now))
 	})
 }
 
-func buildModelSubstitutionResponse(snapshot repository.ModelSubstitutionSnapshot) modelSubstitutionResponse {
+// buildModelSubstitutionResponse 把仓储快照转成响应；now 用于计算 age_seconds，
+// 与查询窗口使用同一个时刻，避免响应内部时间基准不一致。
+func buildModelSubstitutionResponse(snapshot repository.ModelSubstitutionSnapshot, now time.Time) modelSubstitutionResponse {
 	summary := snapshot.Summary
 	response := modelSubstitutionResponse{
 		Schema:        repository.ModelSubstitutionSchema,
@@ -114,6 +135,7 @@ func buildModelSubstitutionResponse(snapshot repository.ModelSubstitutionSnapsho
 		Series:        make([]modelSubstitutionPoint, 0, len(snapshot.Buckets)),
 		Matrix:        make([]modelSubstitutionMatrixRow, 0, len(snapshot.Matrix)),
 		Substitutions: make([]modelSubstitutionRequestedRow, 0, len(snapshot.Models)),
+		Current:       make([]modelSubstitutionCurrentRow, 0, len(snapshot.Current)),
 		Truncated:     snapshot.Truncated,
 	}
 	if snapshot.Top != nil && snapshot.Top.Count > 0 {
@@ -151,7 +173,39 @@ func buildModelSubstitutionResponse(snapshot repository.ModelSubstitutionSnapsho
 			MatchRate:         modelSubstitutionRate(stats.Match.Matched, stats.Match.Total),
 		})
 	}
+	for _, observation := range snapshot.Current {
+		row := modelSubstitutionCurrentRow{
+			RequestedModel: observation.RequestedModel,
+			UpstreamModel:  observation.UpstreamModel,
+			Matched:        observation.Matched,
+			ObservedAt:     observation.ObservedAt.Format(time.RFC3339),
+			AgeSeconds:     modelSubstitutionAgeSeconds(observation.ObservedAt, now),
+		}
+		// 空值与未知判定码都保留为 null/原文，前端中性呈现，绝不把缺失读成正常。
+		if code := strings.TrimSpace(observation.StateCheck); code != "" {
+			row.StateCheck = &code
+		}
+		if reason := strings.TrimSpace(observation.StateCheckReason); reason != "" {
+			row.StateCheckReason = &reason
+		}
+		if account := strings.TrimSpace(observation.AccountEntryID); account != "" {
+			row.AccountEntryID = &account
+		}
+		row.StateCheckObservedBlocks = observation.StateCheckObservedBlocks
+		row.StateCheckExpectedBlocks = observation.StateCheckExpectedBlocks
+		response.Current = append(response.Current, row)
+	}
 	return response
+}
+
+// modelSubstitutionAgeSeconds 相对服务端 now 计算观测年龄并夹紧到 >=0，
+// 避免上游时间戳略滞后于本机时钟时前端显示负时长。
+func modelSubstitutionAgeSeconds(observedAt, now time.Time) int64 {
+	seconds := int64(now.Sub(observedAt).Seconds())
+	if seconds < 0 {
+		return 0
+	}
+	return seconds
 }
 
 // modelSubstitutionRate 把计数换算成 0-100 百分比；分母为 0 时返回 nil，由前端渲染不可用。

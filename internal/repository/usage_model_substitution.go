@@ -23,6 +23,8 @@ const (
 	// 输出上限：矩阵单元格与按请求模型汇总都必须有界，绝不返回无界数组。
 	modelSubstitutionMatrixCellLimit     = 120
 	modelSubstitutionRequestedModelLimit = 40
+	// 最近观测每个请求模型只保留一行，上限与按模型汇总保持同一量级。
+	modelSubstitutionCurrentLimit = 100
 )
 
 // ModelSubstitutionWindow 是已经夹紧到白名单的查询窗口与分桶方式。
@@ -148,6 +150,21 @@ type ModelSubstitutionTopSubstitution struct {
 	Count int64
 }
 
+// ModelSubstitutionCurrentObservation 是单个请求模型在窗口内最近一次观测到的上游应答。
+// 只携带展示所需字段，绝不含 turn-state 原文、指纹、prompt 或错误正文。
+type ModelSubstitutionCurrentObservation struct {
+	RequestedModel string
+	UpstreamModel  string
+	Matched        bool
+	ObservedAt     time.Time
+	AccountEntryID string
+	// StateCheck/StateCheckReason 空值表示上游未上报；未知码原样保留，由展示层中性呈现。
+	StateCheck               string
+	StateCheckReason         string
+	StateCheckObservedBlocks *int64
+	StateCheckExpectedBlocks *int64
+}
+
 // ModelSubstitutionSnapshot 是模型替换观测接口的完整有界快照。
 type ModelSubstitutionSnapshot struct {
 	Window ModelSubstitutionWindow
@@ -156,6 +173,8 @@ type ModelSubstitutionSnapshot struct {
 	Buckets []ModelSubstitutionBucket
 	Matrix  []ModelSubstitutionCell
 	Models  []ModelSubstitutionModelStats
+	// Current 是每个请求模型最近一次观测；按观测时间降序，长度不超过 modelSubstitutionCurrentLimit。
+	Current []ModelSubstitutionCurrentObservation
 	Top     *ModelSubstitutionTopSubstitution
 	// Truncated 表示矩阵或按模型汇总命中上限被截断，前端据此提示样本不完整。
 	Truncated bool
@@ -167,7 +186,7 @@ func EmptyModelSubstitutionSnapshot(window ModelSubstitutionWindow) ModelSubstit
 	for index, start := range window.BucketStarts {
 		buckets[index].Start = start
 	}
-	return ModelSubstitutionSnapshot{Window: window, Buckets: buckets, Matrix: []ModelSubstitutionCell{}, Models: []ModelSubstitutionModelStats{}}
+	return ModelSubstitutionSnapshot{Window: window, Buckets: buckets, Matrix: []ModelSubstitutionCell{}, Models: []ModelSubstitutionModelStats{}, Current: []ModelSubstitutionCurrentObservation{}}
 }
 
 // ModelSubstitutionProvider 用只读聚合回答“谁被替换成谁”。
@@ -243,7 +262,95 @@ func (p *ModelSubstitutionProvider) ModelSubstitution(ctx context.Context, range
 	snapshot.Models = models
 	snapshot.Truncated = matrixTruncated || modelsTruncated
 	snapshot.Top = topModelSubstitution(snapshot.Matrix)
+
+	current, err := loadModelSubstitutionCurrent(ctx, p.db, window)
+	if err != nil {
+		return ModelSubstitutionSnapshot{}, err
+	}
+	snapshot.Current = current
 	return snapshot, nil
+}
+
+// modelSubstitutionCurrentRow 是最近观测查询的原始行；timestamp 由 SQL 返回文本，
+// 因为 Raw 查询绕过了 storageTime serializer。
+type modelSubstitutionCurrentRow struct {
+	RequestedModel           string `gorm:"column:requested_model"`
+	UpstreamModel            string `gorm:"column:upstream_model"`
+	AccountEntryID           string `gorm:"column:account_entry_id"`
+	ObservedAt               string `gorm:"column:observed_at"`
+	StateCheck               string `gorm:"column:state_check"`
+	StateCheckReason         string `gorm:"column:state_check_reason"`
+	StateCheckObservedBlocks *int64 `gorm:"column:state_check_observed_blocks"`
+	StateCheckExpectedBlocks *int64 `gorm:"column:state_check_expected_blocks"`
+}
+
+// loadModelSubstitutionCurrent 取每个请求模型最近一次观测。
+// 用窗口函数在 SQL 内完成“每组取最新”，避免把整个窗口的原始行搬进内存；
+// 排序按真实 instant（epoch 秒）而不是带 offset 的文本，再用 id 打破同秒并列。
+func loadModelSubstitutionCurrent(ctx context.Context, db *gorm.DB, window ModelSubstitutionWindow) ([]ModelSubstitutionCurrentObservation, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// 与主查询一致的宽范围预筛：storageTime 文本顺序不等于 instant 顺序，
+	// 先用文本索引取宽范围，再用 epoch 精确复核。
+	coarseStart := timeutil.FormatStorageTime(window.Start.Add(-24 * time.Hour))
+	coarseEnd := timeutil.FormatStorageTime(window.End.Add(24 * time.Hour))
+	epochExpression := "CAST(strftime('%s', timestamp) AS INTEGER)"
+	query := fmt.Sprintf(`SELECT requested_model, upstream_model, account_entry_id, observed_at,
+	state_check, state_check_reason, state_check_observed_blocks, state_check_expected_blocks
+FROM (
+	SELECT model AS requested_model,
+		TRIM(upstream_model) AS upstream_model,
+		TRIM(auth_index) AS account_entry_id,
+		timestamp AS observed_at,
+		TRIM(state_check) AS state_check,
+		TRIM(state_check_reason) AS state_check_reason,
+		state_check_observed_blocks,
+		state_check_expected_blocks,
+		%s AS observed_epoch,
+		ROW_NUMBER() OVER (PARTITION BY model ORDER BY %s DESC, id DESC) AS row_number
+	FROM usage_events
+	WHERE TRIM(upstream_model) <> '' AND TRIM(model) <> ''
+		AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
+) WHERE row_number = 1
+ORDER BY observed_epoch DESC, requested_model
+LIMIT ?`, epochExpression, epochExpression, epochExpression, epochExpression)
+
+	rows, err := db.WithContext(ctx).Raw(query,
+		coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix(), modelSubstitutionCurrentLimit).Rows()
+	if err != nil {
+		return nil, fmt.Errorf("load model substitution current rows: %w", err)
+	}
+	defer rows.Close()
+
+	current := make([]ModelSubstitutionCurrentObservation, 0, modelSubstitutionCurrentLimit)
+	for rows.Next() {
+		var row modelSubstitutionCurrentRow
+		if err := db.ScanRows(rows, &row); err != nil {
+			return nil, fmt.Errorf("scan model substitution current row: %w", err)
+		}
+		observedAt, err := timeutil.ParseStorageTime(row.ObservedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse model substitution current timestamp: %w", err)
+		}
+		requested := strings.TrimSpace(row.RequestedModel)
+		upstream := strings.TrimSpace(row.UpstreamModel)
+		current = append(current, ModelSubstitutionCurrentObservation{
+			RequestedModel:           requested,
+			UpstreamModel:            upstream,
+			Matched:                  IsUpstreamModelMatch(requested, upstream),
+			ObservedAt:               observedAt,
+			AccountEntryID:           row.AccountEntryID,
+			StateCheck:               row.StateCheck,
+			StateCheckReason:         row.StateCheckReason,
+			StateCheckObservedBlocks: row.StateCheckObservedBlocks,
+			StateCheckExpectedBlocks: row.StateCheckExpectedBlocks,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model substitution current rows: %w", err)
+	}
+	return current, nil
 }
 
 // modelSubstitutionBucketKeys 把桶起点映射成 SQL 分组键，必须与 modelSubstitutionBucketExpression 一致。

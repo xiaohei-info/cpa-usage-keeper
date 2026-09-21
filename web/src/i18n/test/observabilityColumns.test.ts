@@ -7,9 +7,9 @@ const labels = (language: string, keys: string[]) => keys.map((key) => (
 
 const OBSERVABILITY_KEYS = [
   'request_events_upstream_model',
-  'request_events_state_check',
   'request_events_model_match',
   'request_events_model_mismatch',
+  'request_events_model_unobserved',
   'request_events_state_check_ok',
   'request_events_state_check_none',
   'request_events_state_check_degraded',
@@ -18,12 +18,12 @@ const OBSERVABILITY_KEYS = [
 ];
 
 describe('observability column translations', () => {
-  it('localizes the observability columns and verdicts in every supported language', () => {
+  it('localizes the merged observability column and verdicts in every supported language', () => {
     expect(labels('en', OBSERVABILITY_KEYS)).toEqual([
       'Upstream Model',
-      'State Check',
       'Match',
       'Mismatch',
+      'Unobserved',
       'OK',
       'None',
       'Possibly degraded',
@@ -32,24 +32,24 @@ describe('observability column translations', () => {
     ]);
     expect(labels('zh', OBSERVABILITY_KEYS)).toEqual([
       '上游模型',
-      'state 探查',
       '匹配',
       '不匹配',
+      '未观测',
       '正常',
       '无',
       '可能降智',
-      '块数不符（实际 {{observed}} 块 / 期望 {{expected}} 块）',
+      '块数不符（实际 {{observed}} / 期望 {{expected}}）',
       '未知原因（{{code}}）',
     ]);
     expect(labels('zh-TW', OBSERVABILITY_KEYS)).toEqual([
       '上游模型',
-      'state 探查',
       '匹配',
       '不匹配',
+      '未觀測',
       '正常',
       '無',
       '可能降智',
-      '塊數不符（實際 {{observed}} 塊 / 期望 {{expected}} 塊）',
+      '塊數不符（實際 {{observed}} / 期望 {{expected}}）',
       '未知原因（{{code}}）',
     ]);
   });
@@ -93,7 +93,7 @@ describe('observability column translations', () => {
       '时间戳越界',
       '时间戳异常',
       '已过期',
-      '块数不符（实际 {{observed}} 块 / 期望 {{expected}} 块）',
+      '块数不符（实际 {{observed}} / 期望 {{expected}}）',
     ]);
     expect(labels('zh-TW', reasonKeys)).toEqual([
       '長度超限',
@@ -106,7 +106,7 @@ describe('observability column translations', () => {
       '時間戳越界',
       '時間戳異常',
       '已過期',
-      '塊數不符（實際 {{observed}} 塊 / 期望 {{expected}} 塊）',
+      '塊數不符（實際 {{observed}} / 期望 {{expected}}）',
     ]);
   });
 

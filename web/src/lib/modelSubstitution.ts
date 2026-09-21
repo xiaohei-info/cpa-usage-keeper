@@ -54,6 +54,25 @@ export interface ModelSubstitutionRequestedRow {
   match_rate: number | null;
 }
 
+/**
+ * 单个请求模型在所选范围内最近一次观测到的上游应答。
+ * age_seconds 由服务端相对其 now 计算并夹紧到 >=0，前端不再自行推断时钟差异。
+ */
+export interface ModelSubstitutionCurrentRow {
+  requested_model: string;
+  upstream_model: string;
+  matched: boolean;
+  observed_at: string;
+  age_seconds: number;
+  /** null 表示上游未上报 state_check，绝不能当成正常。 */
+  state_check: string | null;
+  state_check_reason: string | null;
+  /** 仅在块数不符时上报；null 表示未上报，与真实 0 不同。 */
+  state_check_observed_blocks: number | null;
+  state_check_expected_blocks: number | null;
+  account_entry_id: string | null;
+}
+
 export interface ModelSubstitutionResponse {
   schema: string;
   range: string;
@@ -64,8 +83,16 @@ export interface ModelSubstitutionResponse {
   series: ModelSubstitutionPoint[];
   matrix: ModelSubstitutionMatrixRow[];
   substitutions: ModelSubstitutionRequestedRow[];
+  current: ModelSubstitutionCurrentRow[];
   truncated: boolean;
 }
+
+/** 服务端返回 null 或缺失时保持 null；空串判定码等价于“未上报”。 */
+const nullableText = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+};
 
 // 显式 null / undefined / 空串表示“没有样本”，必须保持 null；Number(null) 会变成 0，
 // 把没有样本桶伪装成 0% 的失败率。
@@ -133,6 +160,19 @@ export function normalizeModelSubstitution(value: unknown): ModelSubstitutionRes
       requests_with_model: safeCount(row.requests_with_model),
       mismatched: safeCount(row.mismatched),
       match_rate: finiteNumberOrNull(row.match_rate),
+    })),
+    // 旧后端不带 current；缺失时降级为空数组，页面显示空状态而不是崩溃。
+    current: (Array.isArray(value.current) ? value.current : []).filter(isRecord).map((row) => ({
+      requested_model: safeText(row.requested_model),
+      upstream_model: safeText(row.upstream_model),
+      matched: row.matched === true,
+      observed_at: safeText(row.observed_at),
+      age_seconds: safeCount(row.age_seconds),
+      state_check: nullableText(row.state_check),
+      state_check_reason: nullableText(row.state_check_reason),
+      state_check_observed_blocks: finiteNumberOrNull(row.state_check_observed_blocks),
+      state_check_expected_blocks: finiteNumberOrNull(row.state_check_expected_blocks),
+      account_entry_id: nullableText(row.account_entry_id),
     })),
     truncated: value.truncated === true,
   };
@@ -270,4 +310,25 @@ export function buildModelSubstitutionChartSeries(response: ModelSubstitutionRes
     stateCheckLowSample:
       point.state_check_observed > 0 && point.state_check_observed < MODEL_SUBSTITUTION_LOW_BUCKET_SAMPLE,
   }))
+}
+
+/** 相对时间粒度：先最大的单位，让“3 分钟前”比“180 秒前”更好读。 */
+export type RelativeTimeUnit = 'second' | 'minute' | 'hour' | 'day';
+
+export interface RelativeTimeAmount {
+  unit: RelativeTimeUnit;
+  value: number;
+}
+
+/**
+ * 把服务端给的 age_seconds 折算成展示用的最大单位。
+ * 传入 null（旧后端或缺失字段）时返回 null，由调用方回退到精确时间，不编造“刚刚”。
+ */
+export function toRelativeTimeAmount(ageSeconds: number | null | undefined): RelativeTimeAmount | null {
+  if (ageSeconds === null || ageSeconds === undefined || !Number.isFinite(ageSeconds)) return null;
+  const seconds = Math.max(0, Math.floor(ageSeconds));
+  if (seconds < 60) return { unit: 'second', value: seconds };
+  if (seconds < 3600) return { unit: 'minute', value: Math.floor(seconds / 60) };
+  if (seconds < 86_400) return { unit: 'hour', value: Math.floor(seconds / 3600) };
+  return { unit: 'day', value: Math.floor(seconds / 86_400) };
 }

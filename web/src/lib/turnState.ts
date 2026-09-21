@@ -71,6 +71,11 @@ export interface TurnStateEvent {
   route_id: string | null;
   length: number | null;
   blocks: number | null;
+  /** 拒绝时第一条未通过的规则码；无失败规则时为 null。 */
+  reason: string | null;
+  /** 候选 state 的块数形状，用于解释 block_mismatch。 */
+  observed_blocks: number | null;
+  expected_blocks: number | null;
   usage: TurnStateUsage | null;
 }
 export interface TurnStateUsage {
@@ -79,7 +84,7 @@ export interface TurnStateUsage {
   reasoning_tokens: number | null;
 }
 
-const shapes: Record<string, Record<string, string>> = {"TurnStateOverview": {"schema": "string", "server_time": "string", "epoch": "string", "config": "TurnStateConfig", "summary": "TurnStateCounters", "sessions": "[]TurnStateSession", "events": "[]TurnStateEvent"}, "TurnStateConfig": {"enabled": "bool", "passive_enabled": "bool", "active_enabled": "bool", "mode": "string", "fallback": "string", "account_mode": "string", "ttl_seconds": "int64", "refresh_before_seconds": "int64", "probe_timeout_seconds": "int64", "cooldown_seconds": "int64", "max_attempts_per_round": "int64"}, "TurnStateCounters": {"sessions": "int64", "usable": "int64", "ready": "int64", "collecting": "int64", "expired": "int64", "blocked": "int64", "injection_count": "int64", "passive_observations": "int64", "active_probes": "int64", "accepted_probes": "int64", "rejected_probes": "int64"}, "TurnStateSession": {"entry_id": "string", "model": "string", "account_mode": "string", "phase": "string", "account_label": "*string", "diagnostic": "*string", "last_observed_at": "*string", "last_injected_at": "*string", "next_probe_at": "*string", "active": "*TurnStateSummary", "ready": "*TurnStateSummary", "injection_count": "int64", "observation_count": "int64", "probe_count": "int64", "strikes": "int64"}, "TurnStateSummary": {"usable": "bool", "length": "int64", "blocks": "int64", "version": "int64", "fingerprint": "string", "issued_at": "string", "expires_at": "string", "route_id": "*string"}, "TurnStateEvent": {"id": "string", "at": "string", "source": "string", "action": "string", "result": "string", "entry_id": "*string", "model": "*string", "route_id": "*string", "length": "*int64", "blocks": "*int64", "usage": "*TurnStateUsage"}, "TurnStateUsage": {"input_tokens": "*int64", "output_tokens": "*int64", "reasoning_tokens": "*int64"}};
+const shapes: Record<string, Record<string, string>> = {"TurnStateOverview": {"schema": "string", "server_time": "string", "epoch": "string", "config": "TurnStateConfig", "summary": "TurnStateCounters", "sessions": "[]TurnStateSession", "events": "[]TurnStateEvent"}, "TurnStateConfig": {"enabled": "bool", "passive_enabled": "bool", "active_enabled": "bool", "mode": "string", "fallback": "string", "account_mode": "string", "ttl_seconds": "int64", "refresh_before_seconds": "int64", "probe_timeout_seconds": "int64", "cooldown_seconds": "int64", "max_attempts_per_round": "int64"}, "TurnStateCounters": {"sessions": "int64", "usable": "int64", "ready": "int64", "collecting": "int64", "expired": "int64", "blocked": "int64", "injection_count": "int64", "passive_observations": "int64", "active_probes": "int64", "accepted_probes": "int64", "rejected_probes": "int64"}, "TurnStateSession": {"entry_id": "string", "model": "string", "account_mode": "string", "phase": "string", "account_label": "*string", "diagnostic": "*string", "last_observed_at": "*string", "last_injected_at": "*string", "next_probe_at": "*string", "active": "*TurnStateSummary", "ready": "*TurnStateSummary", "injection_count": "int64", "observation_count": "int64", "probe_count": "int64", "strikes": "int64"}, "TurnStateSummary": {"usable": "bool", "length": "int64", "blocks": "int64", "version": "int64", "fingerprint": "string", "issued_at": "string", "expires_at": "string", "route_id": "*string"}, "TurnStateEvent": {"id": "string", "at": "string", "source": "string", "action": "string", "result": "string", "entry_id": "*string", "model": "*string", "route_id": "*string", "length": "*int64", "blocks": "*int64", "?reason": "?*string", "?observed_blocks": "?*int64", "?expected_blocks": "?*int64", "usage": "*TurnStateUsage"}, "TurnStateUsage": {"input_tokens": "*int64", "output_tokens": "*int64", "reasoning_tokens": "*int64"}};
 
 function valid(value: unknown, type: string, field = ''): boolean {
   if (type.startsWith('*')) return value === null || valid(value, type.slice(1), field);
@@ -95,7 +100,13 @@ function valid(value: unknown, type: string, field = ''): boolean {
     return enums[field] ? enums[field].includes(value) : value.length > 0 || field === 'account_label';
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.entries(shapes[type]).every(([key, child]) => Object.hasOwn(value, key) && valid((value as Record<string, unknown>)[key], child, key));
+  // A '?' prefix marks an additive field: absent is fine (older producer), present must be valid.
+  return Object.entries(shapes[type]).every(([key, child]) => {
+    const optional = child.startsWith('?');
+    const expected = optional ? child.slice(1) : child;
+    if (!Object.hasOwn(value, key)) return optional;
+    return valid((value as Record<string, unknown>)[key], expected, key);
+  });
 }
 export function isTurnStateOverview(value: unknown): value is TurnStateOverview {
   return valid(value, 'TurnStateOverview') && (value as TurnStateOverview).schema === 'codex-proxy.turn-state-overview.v1';

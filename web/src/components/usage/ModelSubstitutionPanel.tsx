@@ -10,7 +10,9 @@ import {
   MODEL_SUBSTITUTION_LOW_BUCKET_SAMPLE,
   buildModelSubstitutionChartSeries,
   buildModelSubstitutionMatrix,
+  toRelativeTimeAmount,
   type ModelSubstitutionChartSeries,
+  type ModelSubstitutionCurrentRow,
   type ModelSubstitutionRange,
   type ModelSubstitutionResponse,
 } from '@/lib/modelSubstitution';
@@ -18,8 +20,12 @@ import { Card } from '@/components/ui/Card';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useThemeStore } from '@/stores';
 import { upstreamModelMatchTone, type UpstreamMatchTone } from '@/utils/usage/health';
+import { formatStateCheckDetail, resolveStateCheckPresentation } from '@/utils/usage/stateCheck';
 import { buildUsageChartTooltipStyle, getUsageChartTheme } from '@/utils/usage/chartConfig';
 import styles from './ModelSubstitutionPanel.module.scss';
+
+/** 最近观测的自动刷新间隔；仅在页面可见时轮询，隐藏和卸载都会中止。 */
+const MODEL_SUBSTITUTION_POLL_MS = 30_000;
 
 // 图表两条曲线固定用可区分的色相，不与健康分段的绿/橙/红复用。
 const MATCH_SERIES_COLOR = '#2563eb';
@@ -41,6 +47,17 @@ const toneClassNames: Record<UpstreamMatchTone, string> = {
 };
 
 const percentText = (value: number | null): string => (value === null ? '' : `${value.toFixed(1)}%`);
+
+// 结果色调：一致绿、被替换红、未观测中性；未观测绝不能被渲染成一致。
+const currentResultTone = (row: ModelSubstitutionCurrentRow): UpstreamMatchTone => {
+  if (!row.requested_model || !row.upstream_model) return 'neutral';
+  return row.matched ? 'success' : 'danger';
+};
+
+const currentResultLabelKey = (row: ModelSubstitutionCurrentRow): string => {
+  if (!row.requested_model || !row.upstream_model) return 'turn_state.model_sub_current_unobserved';
+  return row.matched ? 'turn_state.model_sub_current_match' : 'turn_state.model_sub_current_replaced';
+};
 
 const BUCKET_START_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
 
@@ -166,6 +183,88 @@ interface ModelSubstitutionPanelProps {
   onAuthRequired?: () => void;
 }
 
+interface LatestObservationTableProps {
+  rows: ModelSubstitutionCurrentRow[];
+  onAuthRequired?: () => void;
+}
+
+/**
+ * 页面顶部的“最近模型观测”表：每个请求模型一行，展示最新上游应答与 state 判定。
+ * 始终保留未观测/未知的中性呈现，不让缺失数据看起来像正常。
+ */
+export function LatestObservationTable({ rows }: LatestObservationTableProps) {
+  const { t } = useTranslation();
+  const unknown = t('turn_state.unknown');
+
+  // 归一化层保证 current 是数组；这里再容错一次，旧后端或未归一化的载荷只会显示空状态。
+  const observations = Array.isArray(rows) ? rows : [];
+  if (observations.length === 0) {
+    // 空状态也留在同一容器内，调用方可以稳定地定位这个区块。
+    return <div className={styles.currentSurface} data-model-subscription-current>
+      <p className={styles.empty} data-model-subscription-current-empty>{t('turn_state.model_sub_current_empty')}</p>
+    </div>;
+  }
+
+  const formatObserved = (row: ModelSubstitutionCurrentRow): { relative: string; exact: string } => {
+    const amount = toRelativeTimeAmount(row.age_seconds);
+    const parsed = Date.parse(row.observed_at);
+    const exact = Number.isNaN(parsed) ? unknown : new Date(parsed).toLocaleString();
+    if (!amount) return { relative: exact, exact };
+    if (amount.unit === 'second' && amount.value < 5) return { relative: t('turn_state.model_sub_current_just_now'), exact };
+    const key = {
+      second: 'turn_state.model_sub_current_seconds_ago',
+      minute: 'turn_state.model_sub_current_minutes_ago',
+      hour: 'turn_state.model_sub_current_hours_ago',
+      day: 'turn_state.model_sub_current_days_ago',
+    }[amount.unit];
+    return { relative: t(key, { count: amount.value }), exact };
+  };
+
+  const stateCheckCell = (row: ModelSubstitutionCurrentRow) => {
+    // 未上报 state 时返回 null，渲染为中性“无”，绝不显示成正常。
+    const presentation = resolveStateCheckPresentation(row.state_check ?? '', row.state_check_reason ?? '');
+    if (!presentation) return { tone: 'neutral' as const, label: t('usage_stats.request_events_state_check_none') };
+    const label = presentation.labelKey ? t(presentation.labelKey) : presentation.verdictCode;
+    const detail = formatStateCheckDetail(row.state_check ?? '', row.state_check_reason ?? '', {
+      observedBlocks: row.state_check_observed_blocks,
+      expectedBlocks: row.state_check_expected_blocks,
+    }, t);
+    return { tone: presentation.tone, label: detail ? `${label} · ${detail}` : label };
+  };
+
+  return <div className={styles.currentSurface} data-model-subscription-current>
+    <table className={styles.currentTable}>
+      <thead>
+        <tr>
+          <th scope="col">{t('turn_state.model_sub_current_requested')}</th>
+          <th scope="col">{t('turn_state.model_sub_current_upstream')}</th>
+          <th scope="col">{t('turn_state.model_sub_current_result')}</th>
+          <th scope="col">{t('turn_state.model_sub_current_last_observed')}</th>
+          <th scope="col">{t('turn_state.model_sub_current_state')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {observations.map((row) => {
+          const observed = formatObserved(row);
+          const tone = currentResultTone(row);
+          const state = stateCheckCell(row);
+          return <tr key={`${row.requested_model}|${row.upstream_model}|${row.observed_at}`}>
+            <th scope="row" className={styles.currentModel}>{row.requested_model}</th>
+            <td className={styles.currentModel}>{row.upstream_model}</td>
+            <td className={toneClassNames[tone]} data-current-result={tone}>{t(currentResultLabelKey(row))}</td>
+            <td className={styles.currentObserved}>
+              <span title={observed.exact}>{observed.relative}</span>
+              <small className={styles.currentObservedExact}>{observed.exact}</small>
+            </td>
+            <td className={toneClassNames[state.tone]} data-current-state={state.tone}>{state.label}</td>
+          </tr>;
+        })}
+      </tbody>
+    </table>
+    <p className={styles.chartNote}>{t('turn_state.model_sub_current_polling')}</p>
+  </div>;
+}
+
 /**
  * 模型替换观测：请求模型 vs 上游模型的时间趋势与矩阵。
  * 数据来自 usage_events 历史（upstream_model 为新字段，历史行为空），因此始终显示覆盖样本量。
@@ -211,6 +310,32 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired }: Model
     return () => { controllerRef.current?.abort(); controllerRef.current = null; };
   }, [load, refreshKey]);
 
+  // 最近观测需要比历史桶更新得快：可见时每 30 秒重拉同一接口，隐藏就停，
+  // 卸载时清理定时器。复用 load 的单飞与 abort，不会开第二条请求。
+  useEffect(() => {
+    let timer: number | undefined;
+    const stop = () => { if (timer !== undefined) { window.clearInterval(timer); timer = undefined; } };
+    const start = () => {
+      if (timer !== undefined || document.hidden) return;
+      timer = window.setInterval(() => {
+        if (document.hidden) { stop(); return; }
+        void load(rangeRef.current);
+      }, MODEL_SUBSTITUTION_POLL_MS);
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+        controllerRef.current?.abort();
+      } else {
+        void load(rangeRef.current);
+        start();
+      }
+    };
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [load]);
+
   const series = useMemo(() => (data ? buildModelSubstitutionChartSeries(data) : []), [data]);
   const matrix = useMemo(() => (data ? buildModelSubstitutionMatrix(data) : { columns: [], rows: [] }), [data]);
   const chartData = useMemo(() => buildModelSubstitutionChartData(series, data?.bucket_seconds ?? 3600, t), [series, data?.bucket_seconds, t]);
@@ -252,6 +377,12 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired }: Model
         {failed && !data && <p role="status" className={styles.warning}>{t('turn_state.model_sub_unavailable')}</p>}
         {/* 刷新失败时保留上一份数据，但必须说明当前显示的不是所选范围。 */}
         {failed && data && <p role="status" className={styles.warning} data-model-subscription-stale>{t('turn_state.stale')}</p>}
+        {/* 最近观测放在最前：先回答“现在谁被换成了谁”，再看历史趋势。 */}
+        {data && <section className={styles.currentSurface} aria-label={t('turn_state.model_sub_current_title')}>
+          <h4 className={styles.currentTitle}>{t('turn_state.model_sub_current_title')}</h4>
+          <p className={styles.coverage}>{t('turn_state.model_sub_current_help')}</p>
+          <LatestObservationTable rows={data.current} onAuthRequired={onAuthRequired} />
+        </section>}
         {data && summary && <>
           <div className={styles.summaryGrid}>
             <div className={styles.summaryCard}>

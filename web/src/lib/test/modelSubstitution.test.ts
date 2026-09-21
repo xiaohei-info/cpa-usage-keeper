@@ -5,6 +5,7 @@ import {
   buildModelSubstitutionChartSeries,
   buildModelSubstitutionMatrix,
   normalizeModelSubstitution,
+  toRelativeTimeAmount,
   type ModelSubstitutionResponse,
 } from '../modelSubstitution';
 import { upstreamModelMatchTone } from '@/utils/usage/health';
@@ -175,5 +176,85 @@ describe('upstream model match tone bands', () => {
 describe('default range', () => {
   it('defaults to the operator-approved 24h window', () => {
     expect(DEFAULT_MODEL_SUBSTITUTION_RANGE).toBe('24h');
+  });
+});
+
+describe('normalizeModelSubstitution current observations', () => {
+  it('normalizes the current array and preserves null semantics', () => {
+    const payload = {
+      ...response(),
+      current: [
+        {
+          requested_model: 'gpt-6-astra',
+          upstream_model: 'gpt-5.6-luna',
+          matched: false,
+          observed_at: '2026-09-21T12:25:00+08:00',
+          age_seconds: 300,
+          state_check: 'shape_mismatch',
+          state_check_reason: 'block_mismatch',
+          state_check_observed_blocks: 11,
+          state_check_expected_blocks: 10,
+          account_entry_id: 'acct-1',
+        },
+        {
+          // 未上报 state：null 必须保持 null，不能被折成空串或 0。
+          requested_model: 'gpt-5.6-terra',
+          upstream_model: 'gpt-5.6-sol',
+          matched: false,
+          observed_at: '2026-09-21T12:28:00+08:00',
+          age_seconds: 120,
+          state_check: null,
+          state_check_reason: null,
+          state_check_observed_blocks: null,
+          state_check_expected_blocks: null,
+          account_entry_id: null,
+        },
+      ],
+    };
+    const normalized = normalizeModelSubstitution(payload);
+    expect(normalized).not.toBeNull();
+    expect(normalized!.current).toHaveLength(2);
+    expect(normalized!.current[0]).toMatchObject({
+      requested_model: 'gpt-6-astra',
+      upstream_model: 'gpt-5.6-luna',
+      matched: false,
+      age_seconds: 300,
+      state_check: 'shape_mismatch',
+      state_check_reason: 'block_mismatch',
+      state_check_observed_blocks: 11,
+      state_check_expected_blocks: 10,
+      account_entry_id: 'acct-1',
+    });
+    expect(normalized!.current[1].state_check).toBeNull();
+    expect(normalized!.current[1].state_check_reason).toBeNull();
+    expect(normalized!.current[1].state_check_observed_blocks).toBeNull();
+    expect(normalized!.current[1].account_entry_id).toBeNull();
+  });
+
+  it('falls back to an empty current array when an older backend omits it', () => {
+    const legacy = { ...response() } as Record<string, unknown>;
+    delete legacy.current;
+    const normalized = normalizeModelSubstitution(legacy);
+    // 旧后端不带 current 时必须降级为空数组，页面显示空状态而不是崩溃。
+    expect(normalized).not.toBeNull();
+    expect(normalized!.current).toEqual([]);
+  });
+});
+
+describe('toRelativeTimeAmount', () => {
+  it('picks the largest sensible unit and never invents a value for missing data', () => {
+    expect(toRelativeTimeAmount(0)).toEqual({ unit: 'second', value: 0 });
+    expect(toRelativeTimeAmount(45)).toEqual({ unit: 'second', value: 45 });
+    expect(toRelativeTimeAmount(60)).toEqual({ unit: 'minute', value: 1 });
+    expect(toRelativeTimeAmount(3 * 60 + 20)).toEqual({ unit: 'minute', value: 3 });
+    expect(toRelativeTimeAmount(3600)).toEqual({ unit: 'hour', value: 1 });
+    expect(toRelativeTimeAmount(5 * 3600)).toEqual({ unit: 'hour', value: 5 });
+    expect(toRelativeTimeAmount(86_400)).toEqual({ unit: 'day', value: 1 });
+    // 缺失/异常值返回 null，由调用方回退到精确时间而不是显示“刚刚”。
+    expect(toRelativeTimeAmount(null)).toBeNull();
+    expect(toRelativeTimeAmount(undefined)).toBeNull();
+    expect(toRelativeTimeAmount(Number.NaN)).toBeNull();
+    // 负数（时钟偏差）夹紧到 0。
+    expect(toRelativeTimeAmount(-30)).toEqual({ unit: 'second', value: 0 });
   });
 });

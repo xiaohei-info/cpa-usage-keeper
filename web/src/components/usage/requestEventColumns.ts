@@ -4,7 +4,6 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'source',
   'model',
   'upstream_model',
-  'state_check',
   'reasoning_effort',
   'service_tier',
   'result',

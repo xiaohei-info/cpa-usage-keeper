@@ -262,3 +262,147 @@ describe('model substitution chart helpers', () => {
     expect(lines).toEqual(['turn_state.model_sub_tooltip_match_sample:{"count":7}', 'turn_state.model_sub_tooltip_state_sample:{"count":3}']);
   });
 });
+
+describe('Latest model observations table', () => {
+  const currentPayload = (current: unknown[]) => response({ current } as Partial<ModelSubstitutionResponse>);
+
+  it('lists one row per requested model with match/replaced result and relative time', async () => {
+    const element = await render(currentPayload([
+      {
+        requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-luna', matched: false,
+        observed_at: '2026-09-21T12:25:00+08:00', age_seconds: 300,
+        state_check: 'shape_mismatch', state_check_reason: 'block_mismatch',
+        state_check_observed_blocks: 11, state_check_expected_blocks: 10, account_entry_id: 'acct-1',
+      },
+      {
+        requested_model: 'gpt-5.6-sol', upstream_model: 'gpt-5.6-sol', matched: true,
+        observed_at: '2026-09-21T12:29:00+08:00', age_seconds: 45,
+        state_check: 'ok', state_check_reason: null,
+        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
+      },
+    ]));
+
+    // 表必须出现在历史图表之前：先回答“现在谁被换成了谁”。
+    const currentBlock = element.querySelector('[data-model-subscription-current]');
+    const chartBlock = element.querySelector('[data-model-subscription-chart]');
+    expect(currentBlock).not.toBeNull();
+    expect(chartBlock).not.toBeNull();
+    expect(currentBlock!.compareDocumentPosition(chartBlock!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 被替换行：红色 + 人类可读标签，并带出失败规则与块数。
+    const replaced = currentBlock!.querySelector('[data-current-result="danger"]');
+    expect(replaced?.textContent).toContain('turn_state.model_sub_current_replaced');
+    const replacedState = currentBlock!.querySelector('[data-current-state="danger"]');
+    expect(replacedState?.textContent).toContain('usage_stats.request_events_state_check_degraded');
+    expect(replacedState?.textContent).toContain('block_mismatch');
+
+    // 一致行：绿色。
+    const matched = currentBlock!.querySelector('[data-current-result="success"]');
+    expect(matched?.textContent).toContain('turn_state.model_sub_current_match');
+    expect(currentBlock!.querySelector('[data-current-state="success"]')?.textContent)
+      .toContain('usage_stats.request_events_state_check_ok');
+
+    // 相对时间必须渲染，而不是只给原始时间戳。
+    expect(currentBlock!.textContent).toContain('turn_state.model_sub_current_minutes_ago');
+  });
+
+  it('renders an unreported state as neutral instead of healthy', async () => {
+    const element = await render(currentPayload([
+      {
+        requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-terra', matched: false,
+        observed_at: '2026-09-21T12:28:00+08:00', age_seconds: 120,
+        state_check: null, state_check_reason: null,
+        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
+      },
+    ]));
+
+    const block = element.querySelector('[data-model-subscription-current]');
+    // 未上报 state 既不能是绿，也不能被算成一致。
+    expect(block!.querySelector('[data-current-state="neutral"]')).not.toBeNull();
+    expect(block!.querySelector('[data-current-state="success"]')).toBeNull();
+    expect(block!.querySelector('[data-current-result="danger"]')).not.toBeNull();
+  });
+
+  it('keeps an unknown state code neutral and shows the raw code', async () => {
+    const element = await render(currentPayload([
+      {
+        requested_model: 'gpt-6-astra', upstream_model: 'gpt-6-astra', matched: true,
+        observed_at: '2026-09-21T12:29:00+08:00', age_seconds: 30,
+        state_check: 'brand_new_verdict', state_check_reason: 'brand_new_reason',
+        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
+      },
+    ]));
+
+    const block = element.querySelector('[data-model-subscription-current]');
+    const neutral = block!.querySelector('[data-current-state="neutral"]');
+    // 未来新增的判定码必须中性呈现，并保留原始码以便排查。
+    expect(neutral).not.toBeNull();
+    expect(neutral!.textContent).toContain('brand_new_verdict');
+    expect(block!.querySelector('[data-current-state="success"]')).toBeNull();
+  });
+
+  it('shows an explicit empty state when no observation carries an upstream model', async () => {
+    const element = await render(currentPayload([]));
+    const block = element.querySelector('[data-model-subscription-current]');
+    expect(block!.querySelector('[data-model-subscription-current-empty]')?.textContent)
+      .toContain('turn_state.model_sub_current_empty');
+  });
+
+  it('renders the current table even when the historical window is empty', async () => {
+    // 历史桶为空但最近有观测：顶部表仍必须显示，避免“有最新替换但页面说没数据”。
+    const element = await render(response({
+      summary: { requests_with_model: 0, matched: 0, mismatched: 0, match_rate: null, empty: true, top_substitution: null },
+      series: [],
+      matrix: [],
+      substitutions: [],
+      current: [{
+        requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-luna', matched: false,
+        observed_at: '2026-09-21T12:29:00+08:00', age_seconds: 10,
+        state_check: 'ok', state_check_reason: null,
+        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
+      }],
+    } as Partial<ModelSubstitutionResponse>));
+
+    const block = element.querySelector('[data-model-subscription-current]');
+    expect(block!.querySelector('[data-current-result="danger"]')).not.toBeNull();
+    expect(element.textContent).toContain('turn_state.model_sub_empty');
+  });
+});
+
+describe('Latest observations polling', () => {
+  it('polls every 30s while visible and stops on unmount', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const element = await render(response());
+      expect(element.querySelector('[data-model-subscription-current]')).not.toBeNull();
+      const callsAfterMount = fetchModelSubstitution.mock.calls.length;
+
+      // 可见时到点必须再拉一次同一接口。
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(fetchModelSubstitution.mock.calls.length).toBeGreaterThan(callsAfterMount);
+
+      // 卸载后必须清掉定时器。
+      await act(async () => root!.unmount());
+      const callsAfterUnmount = fetchModelSubstitution.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+      expect(fetchModelSubstitution.mock.calls.length).toBe(callsAfterUnmount);
+      root = null;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not poll while the document is hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      await render(response());
+      const calls = fetchModelSubstitution.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+      expect(fetchModelSubstitution.mock.calls.length).toBe(calls);
+    } finally {
+      hidden.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});

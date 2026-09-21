@@ -50,7 +50,7 @@ describe('observability columns in the column settings panel', () => {
     vi.restoreAllMocks();
   });
 
-  it('offers both columns and defaults them to visible', async () => {
+  it('offers the merged upstream column and no standalone state column', async () => {
     await act(async () => root.render(<RequestEventsDetailsCard {...baseProps} />));
     const trigger = document.querySelector<HTMLButtonElement>('[data-request-events-column-settings-trigger]');
     await act(async () => {
@@ -58,15 +58,16 @@ describe('observability columns in the column settings panel', () => {
       await Promise.resolve();
     });
 
-    for (const columnId of ['upstream_model', 'state_check']) {
-      const toggle = document.querySelector<HTMLInputElement>(`[data-request-events-column-visibility="${columnId}"]`);
-      expect(toggle).not.toBeNull();
-      expect(toggle?.checked).toBe(true);
-    }
+    const upstreamToggle = document.querySelector<HTMLInputElement>('[data-request-events-column-visibility="upstream_model"]');
+    expect(upstreamToggle).not.toBeNull();
+    expect(upstreamToggle?.checked).toBe(true);
+    // state 探查 不再是独立列，因此列设置里不应再有它的开关。
+    expect(document.querySelector('[data-request-events-column-visibility="state_check"]')).toBeNull();
 
     const rows = [...document.querySelectorAll('[data-request-events-column-row]')]
       .map((row) => row.getAttribute('data-request-events-column-row'));
-    expect(rows.slice(3, 6)).toEqual(['model', 'upstream_model', 'state_check']);
+    expect(rows.slice(3, 5)).toEqual(['model', 'upstream_model']);
+    expect(rows).not.toContain('state_check');
   });
 
   it('keeps a hidden observability column out of the table', async () => {
@@ -75,11 +76,11 @@ describe('observability columns in the column settings panel', () => {
         {...baseProps}
         events={[event]}
         totalCount={1}
-        visibleColumnIds={['model', 'state_check']}
+        visibleColumnIds={['model']}
       />,
     ));
 
     const headers = [...document.querySelectorAll('th')].map((header) => header.textContent);
-    expect(headers).toEqual(['Model', 'State Check']);
+    expect(headers).toEqual(['Model']);
   });
 });

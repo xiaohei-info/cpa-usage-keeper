@@ -46,6 +46,9 @@ const renderCard = (row: Partial<UsageEvent>) => renderToStaticMarkup(
 
 const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
+// state 探查 已合并进上游模型列，因此判定相关断言都指向同一列。
+const UPSTREAM_COLUMN = 'Upstream Model';
+
 const extractTableHeaders = (html: string) => (
   Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]))
 );
@@ -63,26 +66,31 @@ const cellFor = (html: string, header: string) => {
 };
 
 describe('RequestEventsDetailsCard observability columns', () => {
-  it('places the two observability columns immediately after Model and lists them as visible', () => {
+  it('places a single merged upstream/state column immediately after Model', () => {
     const html = renderCard({});
     const headers = extractTableHeaders(html);
 
-    expect(headers.slice(3, 6)).toEqual(['Model', 'Upstream Model', 'State Check']);
+    expect(headers.slice(3, 5)).toEqual(['Model', 'Upstream Model']);
+    // state 探查 已并入上游模型列，表格里不允许再出现独立的 state 列。
+    expect(headers).not.toContain('State Check');
   });
 
-  it('renders the upstream model with a green match tag when it equals the requested model', () => {
+  it('shows the raw upstream name with a green match badge and no arrow pair', () => {
     const { text, markup } = cellFor(renderCard({ model: 'gpt-5', upstream_model: 'gpt-5' }), 'Upstream Model');
 
-    expect(text).toBe('gpt-5 → gpt-5Match');
+    // 仅展示上游模型名：请求模型已在 Model 列，不再重复成 “请求 → 上游”。
+    expect(text).toBe('gpt-5Match');
+    expect(text).not.toContain('→');
     expect(markup).toContain('data-upstream-model-status="match"');
     expect(markup).toContain('requestEventsStatusTagSuccess');
     expect(markup).not.toContain('requestEventsStatusTagDanger');
   });
 
-  it('renders a red mismatch tag and both names when upstream differs from the request', () => {
+  it('shows the raw upstream name with a red mismatch badge when it differs', () => {
     const { text, markup } = cellFor(renderCard({ model: 'gpt-5', upstream_model: 'gpt-5-mini' }), 'Upstream Model');
 
-    expect(text).toBe('gpt-5 → gpt-5-miniMismatch');
+    expect(text).toBe('gpt-5-miniMismatch');
+    expect(text).not.toContain('→');
     expect(markup).toContain('data-upstream-model-status="mismatch"');
     expect(markup).toContain('requestEventsStatusTagDanger');
   });
@@ -97,7 +105,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
   });
 
   it('renders ok as a green OK verdict without a reason line', () => {
-    const { text, markup } = cellFor(renderCard({ state_check: 'ok' }), 'State Check');
+    const { text, markup } = cellFor(renderCard({ state_check: 'ok' }), UPSTREAM_COLUMN);
 
     expect(text).toBe('OK');
     expect(markup).toContain('data-state-check-tone="success"');
@@ -108,7 +116,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
     const { text, markup } = cellFor(renderCard({
       state_check: 'shape_mismatch',
       state_check_reason: 'encoding_length',
-    }), 'State Check');
+    }), UPSTREAM_COLUMN);
 
     expect(text).toBe('Possibly degradedLength over limit');
     expect(markup).toContain('data-state-check-tone="danger"');
@@ -122,9 +130,9 @@ describe('RequestEventsDetailsCard observability columns', () => {
       state_check_reason: 'block_mismatch',
       state_check_observed_blocks: 11,
       state_check_expected_blocks: 10,
-    }), 'State Check');
+    }), UPSTREAM_COLUMN);
 
-    expect(text).toBe('Possibly degradedBlock count mismatch (observed 11 / expected 10)');
+    expect(text).toBe('Possibly degradedBlock count mismatch (observed 11 blocks / 312 chars / expected 10 blocks / 292 chars)');
     expect(markup).toContain('data-state-check-reason="block_mismatch"');
   });
 
@@ -134,26 +142,26 @@ describe('RequestEventsDetailsCard observability columns', () => {
       state_check_reason: 'block_mismatch',
       state_check_observed_blocks: 0,
       state_check_expected_blocks: 10,
-    }), 'State Check');
+    }), UPSTREAM_COLUMN);
 
-    expect(text).toBe('Possibly degradedBlock count mismatch (observed 0 / expected 10)');
+    expect(text).toBe('Possibly degradedBlock count mismatch (observed 0 blocks / 76 chars / expected 10 blocks / 292 chars)');
   });
 
   it('marks missing block counts as unreported rather than zero', () => {
     const { text } = cellFor(renderCard({
       state_check: 'shape_mismatch',
       state_check_reason: 'block_mismatch',
-    }), 'State Check');
+    }), UPSTREAM_COLUMN);
 
-    expect(text).toBe('Possibly degradedBlock count mismatch (observed - / expected -)');
+    expect(text).toBe('Possibly degradedBlock count mismatch (observed - blocks / - chars / expected - blocks / - chars)');
   });
 
   it('renders invalid and expired as possibly degraded with their own reason label', () => {
     const invalid = cellFor(renderCard({
       state_check: 'invalid',
       state_check_reason: 'envelope_version',
-    }), 'State Check');
-    const expired = cellFor(renderCard({ state_check: 'expired' }), 'State Check');
+    }), UPSTREAM_COLUMN);
+    const expired = cellFor(renderCard({ state_check: 'expired' }), UPSTREAM_COLUMN);
 
     expect(invalid.text).toBe('Possibly degradedEnvelope version mismatch');
     expect(invalid.markup).toContain('data-state-check-tone="danger"');
@@ -161,8 +169,42 @@ describe('RequestEventsDetailsCard observability columns', () => {
     expect(expired.markup).toContain('data-state-check-reason="expired"');
   });
 
+  it('puts both the model verdict and the state verdict badges in the same cell', () => {
+    const { text, markup } = cellFor(renderCard({
+      model: 'gpt-6-astra',
+      upstream_model: 'gpt-5.6-luna',
+      state_check: 'shape_mismatch',
+      state_check_reason: 'block_mismatch',
+      state_check_observed_blocks: 11,
+      state_check_expected_blocks: 10,
+    }), UPSTREAM_COLUMN);
+
+    // 上游模型名直出，不再重复成 “请求 → 上游”。
+    expect(text).toBe('gpt-5.6-lunaMismatchPossibly degradedBlock count mismatch (observed 11 blocks / 312 chars / expected 10 blocks / 292 chars)');
+    expect(text).not.toContain('→');
+    // 两个徽标同处一列：模型判定与 state 判定。
+    expect(markup).toContain('data-upstream-model-status="mismatch"');
+    expect(markup).toContain('data-state-check="shape_mismatch"');
+    expect(markup).toContain('data-state-check-tone="danger"');
+    expect(markup).toContain('data-state-check-reason="block_mismatch"');
+  });
+
+  it('marks an unobserved model side with a neutral badge instead of a false mismatch', () => {
+    // 请求模型缺失时不能把上游模型当作“不匹配”。
+    const { text, markup } = cellFor(renderCard({
+      model: '',
+      upstream_model: 'gpt-5',
+      state_check: 'ok',
+    }), UPSTREAM_COLUMN);
+
+    expect(text).toContain('gpt-5');
+    expect(markup).toContain('data-upstream-model-status="unobserved"');
+    expect(markup).toContain('requestEventsStatusTagNeutral');
+    expect(markup).not.toContain('data-upstream-model-status="mismatch"');
+  });
+
   it('renders no_state as a neutral None verdict instead of a green one', () => {
-    const { text, markup } = cellFor(renderCard({ state_check: 'no_state' }), 'State Check');
+    const { text, markup } = cellFor(renderCard({ state_check: 'no_state' }), UPSTREAM_COLUMN);
 
     expect(text).toBe('None');
     expect(markup).toContain('data-state-check-tone="neutral"');
@@ -170,8 +212,8 @@ describe('RequestEventsDetailsCard observability columns', () => {
     expect(markup).not.toContain('requestEventsStatusTagSuccess');
   });
 
-  it('renders a dash when the state check was not observed', () => {
-    const { text, markup } = cellFor(renderCard({}), 'State Check');
+  it('renders a dash when neither the upstream model nor the state check was observed', () => {
+    const { text, markup } = cellFor(renderCard({}), UPSTREAM_COLUMN);
 
     expect(text).toBe('-');
     expect(markup).not.toContain('requestEventsStatusTag');
@@ -179,7 +221,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
 
   it('never renders an unknown verdict code as green and exposes the raw code', () => {
     const html = renderCard({ state_check: 'brand_new_verdict' });
-    const { text, markup } = cellFor(html, 'State Check');
+    const { text, markup } = cellFor(html, UPSTREAM_COLUMN);
 
     expect(text).toBe('brand_new_verdict');
     expect(markup).toContain('data-state-check-tone="neutral"');
@@ -193,7 +235,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
     const { text, markup } = cellFor(renderCard({
       state_check: 'shape_mismatch',
       state_check_reason: 'brand_new_reason',
-    }), 'State Check');
+    }), UPSTREAM_COLUMN);
 
     expect(text).toBe('Possibly degradedUnknown reason (brand_new_reason)');
     expect(markup).toContain('data-state-check-reason="brand_new_reason"');
@@ -225,8 +267,7 @@ describe('RequestEventsDetailsCard observability columns', () => {
       />,
     );
 
-    expect(cellFor(html, 'Upstream Model').text).toBe('-');
-    expect(cellFor(html, 'State Check').text).toBe('-');
+    expect(cellFor(html, UPSTREAM_COLUMN).text).toBe('-');
   });
 
   it('tolerates null observability fields from the API', () => {
@@ -238,14 +279,14 @@ describe('RequestEventsDetailsCard observability columns', () => {
       state_check_expected_blocks: null,
     });
 
-    expect(cellFor(html, 'Upstream Model').text).toBe('-');
-    expect(cellFor(html, 'State Check').text).toBe('-');
+    expect(cellFor(html, UPSTREAM_COLUMN).text).toBe('-');
   });
 });
 
 describe('observability column helpers', () => {
-  it('registers both columns right after Model so column settings can toggle them', () => {
-    expect(REQUEST_EVENT_COLUMN_IDS.slice(3, 6)).toEqual(['model', 'upstream_model', 'state_check']);
+  it('registers exactly one observability column right after Model', () => {
+    expect(REQUEST_EVENT_COLUMN_IDS.slice(3, 5)).toEqual(['model', 'upstream_model']);
+    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('state_check');
   });
 
   it('treats an empty side as unobserved rather than a match', () => {

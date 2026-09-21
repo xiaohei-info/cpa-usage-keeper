@@ -36,3 +36,16 @@
   .summaryCard > strong { font-size: 1.25rem; }
   .chartSurface { height: 280px; }
 }
+
+/* 最近模型观测：页面首屏结论，样式与矩阵表保持一致但更紧凑。 */
+.currentSurface { margin: 0 0 1rem; padding: 14px; border: 1px solid var(--border-color, #8884); border-radius: var(--keeper-card-radius, 12px); background: var(--bg-secondary); min-width: 0; }
+.currentTitle { margin: 0 0 .35rem; font-size: 1rem; font-weight: 700; }
+.currentSurface .coverage { margin: 0 0 .75rem; }
+.currentTable { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.currentTable th, .currentTable td { padding: .4rem .55rem; border-bottom: 1px solid var(--border-color, #8884); text-align: left; white-space: nowrap; }
+.currentTable thead th { color: var(--text-secondary, #aaa); font-weight: 600; }
+.currentModel { font-variant-numeric: tabular-nums; font-weight: 600; overflow-wrap: anywhere; }
+.currentObserved { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+/* 相对时间给结论，精确时间降为次要行，避免只给 UTC 时间戳。 */
+.currentObservedExact { color: var(--text-secondary, #aaa); font-size: .75rem; }
+.currentSurface { overflow-x: auto; }
