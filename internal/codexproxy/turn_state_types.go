@@ -21,6 +21,12 @@ type TurnStateConfig struct {
 	ProbeTimeoutSeconds  int64  `json:"probe_timeout_seconds"`
 	CooldownSeconds      int64  `json:"cooldown_seconds"`
 	MaxAttemptsPerRound  int64  `json:"max_attempts_per_round"`
+	// Additive config fields from the flattened proxy schema. Pointers keep older
+	// proxies valid; nil means the producer did not expose this field.
+	HarvestProxyURL    *string `json:"harvest_proxy_url,omitempty"`
+	Revalidate         *bool   `json:"revalidate,omitempty"`
+	MismatchIsSuccess  *bool   `json:"mismatch_is_success,omitempty"`
+	RevokeAfterSignals *int64  `json:"revoke_after_signals,omitempty"`
 }
 type TurnStateCounters struct {
 	Sessions            int64 `json:"sessions"`

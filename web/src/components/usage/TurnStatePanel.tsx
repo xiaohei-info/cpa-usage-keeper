@@ -155,7 +155,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
     // 成功类结果不是失败，不得渲染“失败原因”行（否则成功也会显示一条未知原因）。
     if (!failure) {
       const result = session.last_result ?? null;
-      if (!result || SUCCESS_RESULTS.has(result) || result === 'model_unknown') return null;
+      if (!result || SUCCESS_RESULTS.has(result) || result === 'model_unknown' || result === 'dispatched') return null;
       return failureLabel(result, null);
     }
     const label = failureLabel(failure.code ?? null, failure.reason ?? null) ?? t('turn_state.event_rule_unknown', { code: failure.code });
@@ -184,9 +184,10 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
     for (let index = events.length - 1; index >= 0; index--) {
       const event = events[index];
       if (event.source !== source) continue;
-      // 成功不是失败；discard 表示被更新的观测取代，不是质量信号。
+      // 成功不是失败；dispatched 是“请求已发出”的中间生命周期事件，不是终态；
+      // discard 表示被更新的观测取代，也不是质量信号。
       if (event.action === 'accept' || SUCCESS_RESULTS.has(event.result) || event.result === 'model_unknown') continue;
-      if (event.action === 'discard') continue;
+      if (event.action === 'discard' || (event.action === 'probe' && event.result === 'dispatched')) continue;
       const label = failureLabel(event.result, event.reason);
       if (!label) continue;
       const comparison = formatStateComparison(
@@ -216,6 +217,9 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
   // 被动采集优先用会话上的最近观测时间（它是权威值），回退到事件时间。
   const lastObserved = latestOf((session) => session.last_observed_at) ?? latestEventAt('passive');
+  const boolText = (value: boolean | null | undefined) => value == null ? t('turn_state.not_available') : value ? t('turn_state.value_on') : t('turn_state.value_off');
+  const secondsText = (value: number | null | undefined) => value == null ? t('turn_state.not_available') : t('turn_state.config_seconds', { value });
+  const countText = (value: number | null | undefined) => value == null ? t('turn_state.not_available') : t('turn_state.config_count', { value });
 
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
     {/* 模型替换观测是页面的第一结论：谁被换成了谁，优先于 proxy 运行时缓存细节。
@@ -281,29 +285,43 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
           <tbody>
             <tr>
               <th scope="row">{t('turn_state.config_experiment')}</th>
-              <td data-config-value={snapshot.config.enabled && snapshot.config.mode !== 'off' ? 'on' : 'off'}>
-                {snapshot.config.enabled && snapshot.config.mode !== 'off' ? t('turn_state.value_on') : t('turn_state.value_off')}
-              </td>
+              <td data-config-value={snapshot.config.enabled ? 'on' : 'off'}>{boolText(snapshot.config.enabled)}</td>
               <td>{t('turn_state.config_experiment_help')}</td>
             </tr>
             <tr>
               <th scope="row">{t('turn_state.config_passive')}</th>
-              <td data-config-value={snapshot.config.passive_enabled ? 'on' : 'off'}>
-                {snapshot.config.passive_enabled ? t('turn_state.value_on') : t('turn_state.value_off')}
-              </td>
+              <td data-config-value={snapshot.config.passive_enabled ? 'on' : 'off'}>{boolText(snapshot.config.passive_enabled)}</td>
               <td>{t('turn_state.config_passive_help')}</td>
             </tr>
             <tr>
               <th scope="row">{t('turn_state.config_active')}</th>
-              <td data-config-value={snapshot.config.active_enabled ? 'on' : 'off'}>
-                {snapshot.config.active_enabled ? t('turn_state.value_on') : t('turn_state.value_off')}
-              </td>
+              <td data-config-value={snapshot.config.active_enabled ? 'on' : 'off'}>{boolText(snapshot.config.active_enabled)}</td>
               <td>{t('turn_state.config_active_help')}</td>
             </tr>
             <tr>
               <th scope="row">{t('turn_state.config_mode')}</th>
               <td data-config-value={snapshot.config.mode}>{t(`turn_state.mode_${snapshot.config.mode}`)}</td>
               <td>{t('turn_state.config_mode_help')}</td>
+            </tr>
+            <tr>
+              <th scope="row">{t('turn_state.config_fallback')}</th>
+              <td data-config-value={snapshot.config.fallback}>{snapshot.config.fallback === 'strict' ? t('turn_state.config_fallback_strict') : t('turn_state.config_fallback_pass')}</td>
+              <td>{t('turn_state.config_fallback_help')}</td>
+            </tr>
+            <tr>
+              <th scope="row">{t('turn_state.config_harvest_proxy')}</th>
+              <td data-config-value={snapshot.config.harvest_proxy_url ? 'custom' : 'default'}>{snapshot.config.harvest_proxy_url ? t('turn_state.config_custom_route') : t('turn_state.config_default_route')}</td>
+              <td>{t('turn_state.config_harvest_proxy_help')}</td>
+            </tr>
+            <tr>
+              <th scope="row">{t('turn_state.config_revalidate')}</th>
+              <td data-config-value={snapshot.config.revalidate == null ? 'unknown' : snapshot.config.revalidate ? 'on' : 'off'}>{boolText(snapshot.config.revalidate)}</td>
+              <td>{t('turn_state.config_revalidate_help')}</td>
+            </tr>
+            <tr>
+              <th scope="row">{t('turn_state.config_mismatch')}</th>
+              <td data-config-value={snapshot.config.mismatch_is_success == null ? 'unknown' : snapshot.config.mismatch_is_success ? 'on' : 'off'}>{snapshot.config.mismatch_is_success == null ? t('turn_state.not_available') : snapshot.config.mismatch_is_success ? t('turn_state.config_mismatch_success') : t('turn_state.config_mismatch_failure')}</td>
+              <td>{t('turn_state.config_mismatch_help')}</td>
             </tr>
             <tr>
               <th scope="row">{t('turn_state.config_rule')}</th>
@@ -316,6 +334,12 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
               </td>
               <td>{t('turn_state.config_rule_help')}</td>
             </tr>
+            <tr><th scope="row">{t('turn_state.config_ttl')}</th><td>{secondsText(snapshot.config.ttl_seconds)}</td><td>{t('turn_state.config_ttl_help')}</td></tr>
+            <tr><th scope="row">{t('turn_state.config_refresh')}</th><td>{secondsText(snapshot.config.refresh_before_seconds)}</td><td>{t('turn_state.config_refresh_help')}</td></tr>
+            <tr><th scope="row">{t('turn_state.config_timeout')}</th><td>{secondsText(snapshot.config.probe_timeout_seconds)}</td><td>{t('turn_state.config_timeout_help')}</td></tr>
+            <tr><th scope="row">{t('turn_state.config_cooldown')}</th><td>{secondsText(snapshot.config.cooldown_seconds)}</td><td>{t('turn_state.config_cooldown_help')}</td></tr>
+            <tr><th scope="row">{t('turn_state.config_attempts')}</th><td>{countText(snapshot.config.max_attempts_per_round)}</td><td>{t('turn_state.config_attempts_help')}</td></tr>
+            <tr><th scope="row">{t('turn_state.config_revoke')}</th><td>{countText(snapshot.config.revoke_after_signals)}</td><td>{t('turn_state.config_revoke_help')}</td></tr>
           </tbody>
         </table>
       </Card>

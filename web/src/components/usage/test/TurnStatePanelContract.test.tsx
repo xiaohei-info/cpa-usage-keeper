@@ -44,6 +44,34 @@ const STRINGS: Record<string, string> = {
   'turn_state.config_passive_help': '正常业务响应会被保存为新 State',
   'turn_state.config_active': '主动探测',
   'turn_state.config_active_help': '会主动发起短探测请求，可能消耗额度',
+  'turn_state.config_fallback': '没有可用状态时',
+  'turn_state.config_fallback_help': '没有可用状态时，决定继续发送还是拒绝请求',
+  'turn_state.config_fallback_pass': '照常发送',
+  'turn_state.config_fallback_strict': '拒绝请求',
+  'turn_state.config_harvest_proxy': '采集出口',
+  'turn_state.config_harvest_proxy_help': '用于获取状态的代理；留空表示使用默认业务出口',
+  'turn_state.config_default_route': '默认业务出口',
+  'turn_state.config_custom_route': '专用采集代理',
+  'turn_state.config_revalidate': '采集后复验',
+  'turn_state.config_revalidate_help': '重放采集到的状态，确认上游接受后再信任',
+  'turn_state.config_mismatch': '模型不一致',
+  'turn_state.config_mismatch_help': '模型不一致时是否仍视为成功',
+  'turn_state.config_mismatch_success': '算作成功',
+  'turn_state.config_mismatch_failure': '算作失败',
+  'turn_state.config_ttl': '状态有效期',
+  'turn_state.config_ttl_help': '状态在多长时间内保持有效',
+  'turn_state.config_refresh': '提前刷新',
+  'turn_state.config_refresh_help': '距离到期还有多久时开始重新采集',
+  'turn_state.config_timeout': '采集超时',
+  'turn_state.config_timeout_help': '单次采集最多等待时间',
+  'turn_state.config_cooldown': '采集冷却',
+  'turn_state.config_cooldown_help': '失败后再次尝试前等待时间',
+  'turn_state.config_attempts': '每轮尝试次数',
+  'turn_state.config_attempts_help': '一次采集最多发起几次请求',
+  'turn_state.config_revoke': '连续失败后丢弃',
+  'turn_state.config_revoke_help': '连续失败几次后丢弃已保存状态',
+  'turn_state.config_seconds': '{{value}} 秒',
+  'turn_state.config_count': '{{value}} 次',
   'turn_state.config_mode': '注入模式',
   'turn_state.config_mode_help': '当前是否会把 State 写入业务请求',
   'turn_state.config_rule': '当前 State 规则',
@@ -243,6 +271,12 @@ it('shows every config row as a human state word, never a translation key or 主
   expect(experiment!.querySelector('[data-config-value="on"]')).not.toBeNull();
   expect(configRow(node, '被动采集')!.textContent).toContain('未开启');
   expect(configRow(node, '主动探测')!.querySelector('[data-config-value="on"]')).not.toBeNull();
+  expect(configRow(node, '没有可用状态时')!.textContent).toContain('照常发送');
+  expect(configRow(node, '采集出口')!.textContent).toContain('默认业务出口');
+  expect(configRow(node, '采集后复验')!.textContent).toContain('暂无');
+  expect(configRow(node, '模型不一致')!.textContent).toContain('暂无');
+  expect(configRow(node, '状态有效期')!.textContent).toContain('3600');
+  expect(configRow(node, '连续失败后丢弃')!.textContent).toContain('暂无');
   expect(configRow(node, '注入模式')!.textContent).toContain('仅观察');
   // 规则必须整体显示 plan + 形状，并标出自动识别来源。
   const rule = configRow(node, '当前 State 规则')!;
@@ -324,6 +358,18 @@ it('dates each capture card from its own events, not from the injection timestam
   // 两张卡都必须给出时间（STRINGS 把 last_updated 译成“最近更新 {{time}}”），不能是“暂无”。
   expect((text.match(/最近更新/g) ?? []).length).toBe(2);
   expect(text).not.toContain('最近更新 暂无');
+  await act(async () => root.unmount());
+});
+
+it('does not show the non-terminal dispatched event as an unknown failure', async () => {
+  const { node, root } = await render({
+    events: [
+      event({ id: 'dispatch', action: 'probe', result: 'dispatched', observed_blocks: null, reason: null }),
+      event({ id: 'accepted', action: 'accept', result: 'accepted', observed_blocks: 10, expected_blocks: 10, reason: null }),
+    ],
+  });
+  expect(node.querySelector('[data-turn-state-active-failure]')).toBeNull();
+  expect(node.textContent).not.toContain('未知原因（dispatched）');
   await act(async () => root.unmount());
 });
 

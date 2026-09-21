@@ -77,6 +77,51 @@ func TestTurnStateOverviewKeepsAdditiveContractFields(t *testing.T) {
 	}
 }
 
+func TestTurnStateOverviewKeepsFlattenedProxyConfig(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(string(fixture), `"max_attempts_per_round": 0
+  }`, `"max_attempts_per_round": 0,
+    "harvest_proxy_url": null,
+    "revalidate": true,
+    "mismatch_is_success": false,
+    "revoke_after_signals": 2
+  }`, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	got, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("flattened config snapshot rejected: %v", err)
+	}
+	if got.Config.HarvestProxyURL != nil {
+		t.Fatalf("null harvest proxy should remain nil: %#v", got.Config.HarvestProxyURL)
+	}
+	if got.Config.Revalidate == nil || !*got.Config.Revalidate {
+		t.Fatalf("revalidate not decoded: %#v", got.Config.Revalidate)
+	}
+	if got.Config.MismatchIsSuccess == nil || *got.Config.MismatchIsSuccess {
+		t.Fatalf("mismatch_is_success not decoded: %#v", got.Config.MismatchIsSuccess)
+	}
+	if got.Config.RevokeAfterSignals == nil || *got.Config.RevokeAfterSignals != 2 {
+		t.Fatalf("revoke_after_signals not decoded: %#v", got.Config.RevokeAfterSignals)
+	}
+
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"revalidate", "mismatch_is_success", "revoke_after_signals"} {
+		if !strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("%s dropped on re-serialization", key)
+		}
+	}
+}
+
 // The proxy's ticket layer emits source:"ticket" (codex-proxy 4b74a74). Before it was
 // whitelisted, a single ticket event made validateTurnState reject the WHOLE overview, so
 // turning ticket mode on silently took the Keeper status page down (P0-1).
