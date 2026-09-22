@@ -151,7 +151,7 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
         {sorted.map((row) => {
           const session = sessionsByKey.get(sessionKey(row.account_entry_id ?? '', row.requested_model));
           const state = stateCell(row);
-          const upstreamTone = !row.observed ? 'neutral' : row.matched ? 'good' : 'danger';
+          const upstreamTone = !row.observed ? 'neutral' : row.matched ? 'success' : 'danger';
           const mismatchRate = percentText(row.mismatch_rate);
           const degradedRate = percentText(row.state_check_failure_rate);
           const passiveObserved = historical ? row.state_check_observed : (session?.observation_count ?? row.state_check_observed);
@@ -160,7 +160,8 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
           const activeAttempts = historical ? row.probe_attempts : ((session?.ticket_round_count ?? 0) + (session?.probe_count ?? 0));
           const activeAccepted = historical ? row.probe_accepted : 0;
           const activeRejected = historical ? row.probe_rejected : 0;
-          const currentStateTone = session?.active?.usable ? 'good' : session?.last_failure ? 'danger' : 'neutral';
+          const currentStateTone = session?.active?.usable ? 'success' : session?.last_failure ? 'danger' : 'neutral';
+          const injectedCount = session?.injection_count ?? 0;
           return <tr key={`${row.account_entry_id ?? ''}:${row.requested_model}`}>
             <th scope="row" className={styles.account}>{accountDisplayName(row) || t('turn_state.merged_unnamed_account')}</th>
             <td className={styles.model}>{row.requested_model}</td>
@@ -180,7 +181,12 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
               : t('turn_state.state_unavailable')}</span></td>
             {!historical && <td className={styles.count}>{remainingMinutes(session) === null ? t('turn_state.not_available') : t('turn_state.merged_minutes_left', { count: remainingMinutes(session) })}</td>}
             {!historical && <td className={styles.count}>{nextProbeCountdown(session) ?? t('turn_state.not_available')}</td>}
-            <td className={styles.count}>{session ? safeCount(session.injection_count) : '—'}<small className={styles.detail}>{t('turn_state.merged_cumulative')}</small></td>
+            <td className={styles.count}>
+              {session
+                ? <span className={injectedCount > 0 ? styles.success : styles.neutral}>{safeCount(injectedCount)}</span>
+                : '—'}
+              <small className={styles.detail}>{t('turn_state.merged_cumulative')}</small>
+            </td>
             <td className={styles.collectionCell}>
               <strong>{passiveObserved ? safeCount(passiveObserved) : '—'}</strong>
               {passiveObserved > 0 && <small className={styles.detail}>{t('turn_state.overview_capture_split', { accepted: passiveAccepted, rejected: passiveFailed })}</small>}

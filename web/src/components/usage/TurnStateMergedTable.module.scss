@@ -43,7 +43,9 @@
   white-space: nowrap;
 }
 
-.good {
+/* 色调类名必须与 stateCheck.ts 的 StateCheckTone（success/danger/neutral）完全一致，
+   否则 styles[tone] 是 undefined，颜色会静默失效。 */
+.success {
   color: var(--success-color, #15803d);
   font-weight: 700;
 }
