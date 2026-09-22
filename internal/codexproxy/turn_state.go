@@ -100,7 +100,7 @@ func validateTurnState(raw json.RawMessage, typ reflect.Type, field string) bool
 			return s == "account" || s == "override" || s == "assumed_personal"
 		case "fingerprint":
 			return turnStateFingerprint.MatchString(s)
-		case "server_time", "at", "issued_at", "expires_at", "last_observed_at", "last_injected_at", "next_probe_at":
+		case "server_time", "at", "issued_at", "expires_at", "last_observed_at", "last_injected_at", "next_probe_at", "since":
 			_, err := time.Parse(time.RFC3339Nano, s)
 			return err == nil && strings.HasSuffix(s, "Z")
 		default:

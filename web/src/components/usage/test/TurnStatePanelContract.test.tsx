@@ -142,6 +142,10 @@ const STRINGS: Record<string, string> = {
   'turn_state.config': '配置状态',
   'turn_state.relative_just_now': '刚刚',
   'turn_state.relative_minutes_ago': '{{count}} 分钟前',
+  // fixture 的 server_time 是固定过去时刻，跑得越晚越会走到小时/天分支；
+  // 缺这两个键会让“不得出现 turn_state. 前缀”的断言随运行时间变成假失败。
+  'turn_state.relative_hours_ago': '{{count}} 小时前',
+  'turn_state.relative_days_ago': '{{count}} 天前',
   'turn_state.countdown_minutes': '约 {{count}} 分钟后',
   'turn_state.countdown_now': '即将开始',
   'turn_state.source_active': '主动探测',
@@ -169,7 +173,20 @@ const STRINGS: Record<string, string> = {
   'turn_state.overview_ready': '可用 State',
   'turn_state.overview_ready_help': '当前可用于注入',
   'turn_state.overview_ready_none': '当前没有可注入的状态',
-  'turn_state.overview_probes': '主动探测',
+  'turn_state.overview_probes': '主动采集',
+  'turn_state.overview_since': '累计自 {{time}}',
+  'turn_state.event_ticket_verified': '主动采集成功，已保存可用状态',
+  'turn_state.event_ticket_model_mismatch': '上游返回的模型不一致，采集失败',
+  'turn_state.event_ticket_unverified': '尚未采集到可用状态',
+  'turn_state.event_ticket_revoked': '已采集的状态被上游拒绝',
+  'turn_state.event_ticket_revalidating': '正在复验已采集的状态',
+  'turn_state.event_ticket_expired': '已采集的状态已过期',
+  'turn_state.event_ticket_no_candidate': '上游没有返回可用状态',
+  'turn_state.event_ticket_target_mismatch': '采集到的状态形状与目标不符',
+  'turn_state.event_ticket_model_unknown': '上游没有返回模型名，状态无法确认',
+  'turn_state.event_ticket_revalidation_failed': '复验失败，已采集的状态不可用',
+  'turn_state.event_ticket_revalidation_required': '已采集的状态需要复验后才能使用',
+  'turn_state.event_reused_ws': '复用了已有连接，未写入状态',
   'turn_state.overview_observed': '被动采集',
   'turn_state.overview_capture_split': '成功 {{accepted}} 次 · 未通过 {{rejected}} 次',
   'turn_state.overview_capture_none': '尚无采集记录',
@@ -465,4 +482,58 @@ it('surfaces each capture card failure from its own source, never the other one'
   expect(activeNote!.textContent).toContain('上游没有返回 State');
   expect(activeNote!.textContent).not.toContain('11 块');
   await act(async () => root.unmount());
+});
+
+it('shows the merged active-collection counters when the proxy reports them', async () => {
+  // generic probe (active_probes=0) + ticket harvest (12 attempts) 合并后必须显示 12，而不是 0。
+  const { node, root } = await render({
+    summary: { ...fixture.summary, active_probes: 0, accepted_probes: 0, rejected_probes: 0,
+      active_attempts: 13, active_accepted: 1, active_rejected: 12 },
+  });
+  const card = [...node.querySelectorAll('h3')].find((item) => item.textContent === '主动采集')?.closest('.card');
+  expect(card).toBeTruthy();
+  expect(card!.textContent).toContain('13');
+  expect(card!.textContent).toContain('成功 1 次 · 未通过 12 次');
+  await act(async () => root.unmount());
+});
+
+it('falls back to active_probes when the proxy predates the merged counters', async () => {
+  // 旧 proxy 不返回 active_attempts：卡片必须回退，绝不能显示成 0 次采集。
+  const { node, root } = await render({
+    summary: { ...fixture.summary, active_probes: 7, accepted_probes: 2, rejected_probes: 5 },
+  });
+  const card = [...node.querySelectorAll('h3')].find((item) => item.textContent === '主动采集')?.closest('.card');
+  expect(card!.textContent).toContain('7');
+  expect(card!.textContent).toContain('成功 2 次 · 未通过 5 次');
+  await act(async () => root.unmount());
+});
+
+it('attributes a ticket-collection failure to the active card, never the passive one', async () => {
+  // ticket 事件过去被来源筛选整份忽略，自动采集失败因此完全不可见。
+  const { node, root } = await render({
+    summary: { ...fixture.summary, active_attempts: 4, active_accepted: 0, active_rejected: 4, passive_observations: 2, passive_rejected: 2 },
+    events: [
+      event({ id: 't1', source: 'ticket', action: 'harvest', result: 'ticket_model_mismatch', reason: 'ticket_model_mismatch', observed_blocks: null, expected_blocks: null }),
+    ],
+  });
+  const activeNote = node.querySelector('[data-turn-state-active-failure]');
+  expect(activeNote).not.toBeNull();
+  expect(activeNote!.textContent).toContain('上游返回的模型不一致，采集失败');
+  expect(activeNote!.textContent).not.toContain('未知原因');
+  expect(node.querySelector('[data-turn-state-passive-failure]')).toBeNull();
+  await act(async () => root.unmount());
+});
+
+it('renders the cumulative start only when the proxy reports it', async () => {
+  const withSince = await render({ summary: { ...fixture.summary, active_attempts: 3, since: NOW } });
+  const line = withSince.node.querySelector('[data-turn-state-active-since]');
+  expect(line).not.toBeNull();
+  expect(line!.textContent).toContain('累计自');
+  await act(async () => withSince.root.unmount());
+
+  // 旧 proxy 无 since：不得渲染这一行，也不得编造时间。
+  const withoutSince = await render({ summary: { ...fixture.summary, active_attempts: 3 } });
+  expect(withoutSince.node.querySelector('[data-turn-state-active-since]')).toBeNull();
+  expect(withoutSince.node.textContent).not.toContain('累计自');
+  await act(async () => withoutSince.root.unmount());
 });

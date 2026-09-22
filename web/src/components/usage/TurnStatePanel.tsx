@@ -49,10 +49,26 @@ const EVENT_RESULT_KEYS: Record<string, string> = {
   quota_blocked: 'turn_state.event_quota_blocked',
   budget_exhausted: 'turn_state.event_budget_exhausted',
   model_unknown: 'turn_state.event_model_unknown',
+  // Ticket-collection outcomes (proxy source:"ticket"); without these every ticket
+  // event would fall through to "未知原因（code）" even though it is a normal outcome.
+  ticket_verified: 'turn_state.event_ticket_verified',
+  ticket_model_mismatch: 'turn_state.event_ticket_model_mismatch',
+  ticket_unverified: 'turn_state.event_ticket_unverified',
+  ticket_revoked: 'turn_state.event_ticket_revoked',
+  ticket_revalidating: 'turn_state.event_ticket_revalidating',
+  ticket_expired: 'turn_state.event_ticket_expired',
+  ticket_no_candidate: 'turn_state.event_ticket_no_candidate',
+  ticket_target_mismatch: 'turn_state.event_ticket_target_mismatch',
+  ticket_model_unknown: 'turn_state.event_ticket_model_unknown',
+  ticket_revalidation_failed: 'turn_state.event_ticket_revalidation_failed',
+  ticket_revalidation_required: 'turn_state.event_ticket_revalidation_required',
+  reused_ws_not_mutated: 'turn_state.event_reused_ws',
 };
 
 /** 成功类结果不是失败，会话卡的“失败原因”行不得使用它们。 */
-const SUCCESS_RESULTS = new Set(['accepted', 'accepted_model_mismatch']);
+const SUCCESS_RESULTS = new Set(['accepted', 'accepted_model_mismatch', 'ticket_verified']);
+/** 主动采集卡同时归集 generic probe 与 ticket harvest 两个来源，失败原因必须两者都看。 */
+const ACTIVE_SOURCES = new Set(['active', 'ticket']);
 
 type Translate = (key: string, options?: Record<string, string | number>) => string;
 
@@ -183,7 +199,9 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   const latestFailureBySource = (source: 'passive' | 'active'): string | null => {
     for (let index = events.length - 1; index >= 0; index--) {
       const event = events[index];
-      if (event.source !== source) continue;
+      // 主动采集现在有两来源（generic probe + ticket harvest），它们共用同一张卡。
+      const matches = source === 'active' ? ACTIVE_SOURCES.has(event.source) : event.source === source;
+      if (!matches) continue;
       // 成功不是失败；dispatched 是“请求已发出”的中间生命周期事件，不是终态；
       // discard 表示被更新的观测取代，也不是质量信号。
       if (event.action === 'accept' || SUCCESS_RESULTS.has(event.result) || event.result === 'model_unknown') continue;
@@ -203,10 +221,21 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   };
   const lastActiveFailure = latestFailureBySource('active');
   const lastPassiveFailure = latestFailureBySource('passive');
+  /**
+   * 主动采集卡读合并口径：generic probe + ticket harvest。
+   * 旧 proxy 没有 active_attempts，必须回退到 active_probes，否则卡会显示成 0 而与实际采集不符。
+   */
+  const activeAttempts = snapshot?.summary.active_attempts ?? snapshot?.summary.active_probes ?? 0;
+  const activeAccepted = snapshot?.summary.active_accepted ?? snapshot?.summary.accepted_probes ?? 0;
+  const activeRejected = snapshot?.summary.active_rejected ?? snapshot?.summary.rejected_probes ?? 0;
+  // 累计起点是可选字段；缺失时不渲染该行，不编造一个时间。
+  const cumulativeSince = snapshot?.summary.since ?? null;
   /** 某个来源最近一次事件的时间：主动探测用它而非 last_injected_at（仅观察模式从不注入，后者永远是空）。 */
   const latestEventAt = (source: 'passive' | 'active'): string | null => {
     for (let index = events.length - 1; index >= 0; index--) {
-      if (events[index].source === source) return events[index].at;
+      const event = events[index];
+      const matches = source === 'active' ? ACTIVE_SOURCES.has(event.source) : event.source === source;
+      if (matches) return event.at;
     }
     return null;
   };
@@ -237,11 +266,12 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
           <p>{snapshot.summary.usable === 0 ? t('turn_state.overview_ready_none') : t('turn_state.overview_ready_help')}</p>
         </Card>
         <Card title={t('turn_state.overview_probes')}>
-          <strong className={styles.metric}>{formatCount(snapshot.summary.active_probes)}</strong>
-          <p>{snapshot.summary.active_probes === 0
+          <strong className={styles.metric}>{formatCount(activeAttempts)}</strong>
+          <p>{activeAttempts === 0
             ? t('turn_state.overview_capture_none')
-            : t('turn_state.overview_capture_split', { accepted: snapshot.summary.accepted_probes, rejected: snapshot.summary.rejected_probes })}</p>
+            : t('turn_state.overview_capture_split', { accepted: activeAccepted, rejected: activeRejected })}</p>
           <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastActiveAt, now, t) ?? t('turn_state.not_available') })}</p>
+          {cumulativeSince && <p className={styles.cardMeta} data-turn-state-active-since>{t('turn_state.overview_since', { time: dateTime(cumulativeSince, unknown) })}</p>}
           {lastActiveFailure && <p className={styles.failureNote} data-turn-state-active-failure>{lastActiveFailure}</p>}
         </Card>
         {/* 被动采集与主动探测对称展示：尝试次数 + 成功/未通过 + 最近更新时间 + 最近失败原因。

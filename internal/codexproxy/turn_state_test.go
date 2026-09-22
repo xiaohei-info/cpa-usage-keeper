@@ -205,6 +205,83 @@ func TestTurnStateOverviewRejectsInvalidAdditiveValues(t *testing.T) {
 	}
 }
 
+// The merged active-collection counters (§3.1 of the observability contract) plus the
+// cumulative window start must survive the whitelist decode and re-serialization; without
+// them Keeper shows only the generic-probe numbers and reports 0 on a personal account
+// whose collection runs entirely through the ticket path.
+func TestTurnStateOverviewKeepsActiveAttemptMetrics(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(string(fixture),
+		`"active_probes": 0,`,
+		`"active_probes": 0, "active_attempts": 13, "active_accepted": 1, "active_rejected": 12, "since": "2026-09-21T00:00:00Z",`, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	got, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("active-attempt metrics snapshot rejected: %v", err)
+	}
+	if got.Summary.ActiveAttempts == nil || *got.Summary.ActiveAttempts != 13 {
+		t.Fatalf("active_attempts not decoded: %#v", got.Summary.ActiveAttempts)
+	}
+	if got.Summary.ActiveAccepted == nil || *got.Summary.ActiveAccepted != 1 {
+		t.Fatalf("active_accepted not decoded: %#v", got.Summary.ActiveAccepted)
+	}
+	if got.Summary.ActiveRejected == nil || *got.Summary.ActiveRejected != 12 {
+		t.Fatalf("active_rejected not decoded: %#v", got.Summary.ActiveRejected)
+	}
+	if got.Summary.Since == nil || *got.Summary.Since != "2026-09-21T00:00:00Z" {
+		t.Fatalf("since not decoded: %#v", got.Summary.Since)
+	}
+
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"active_attempts", "active_accepted", "active_rejected", "since"} {
+		if !strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("%s dropped on re-serialization", key)
+		}
+	}
+
+	// The older-proxy fixture (no merged counters) must still be accepted and must not
+	// invent zero values for fields the producer never sent.
+	older := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(fixture)
+	}))
+	defer older.Close()
+	legacy, err := NewClient(older.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("older snapshot rejected: %v", err)
+	}
+	if legacy.Summary.ActiveAttempts != nil || legacy.Summary.Since != nil {
+		t.Fatal("absent merged metric must stay nil, not become a value")
+	}
+}
+
+// `since` is a timestamp: a non-ISO value must be rejected exactly like server_time.
+func TestTurnStateOverviewRejectsInvalidSince(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(string(fixture),
+		`"active_probes": 0,`,
+		`"active_probes": 0, "since": "not-a-time",`, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	if _, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background()); err == nil {
+		t.Fatal("non-ISO since must reject the snapshot")
+	}
+}
+
 func TestTurnStateOverview(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
 	if err != nil {

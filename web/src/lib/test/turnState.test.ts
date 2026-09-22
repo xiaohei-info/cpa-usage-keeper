@@ -43,6 +43,18 @@ it('accepts the ticket event source and still rejects unknown sources', () => {
  expect(isTurnStateOverview({ ...fixture, events: [{ ...fixture.events[0], source: 'ticket' }] })).toBe(true);
  expect(isTurnStateOverview({ ...fixture, events: [{ ...fixture.events[0], source: 'made_up' }] })).toBe(false);
 });
+// 合并后的主动采集计数与累计起点是可加字段：旧 proxy 缺失仍合法，
+// 但一旦出现就必须是合法值（非法值拒绝整份快照，不当成未知但可用）。
+it('accepts the merged active-collection counters and rejects malformed values', () => {
+ const withMetrics = { ...fixture, summary: { ...fixture.summary, active_attempts: 13, active_accepted: 1, active_rejected: 12, since: fixture.server_time } };
+ expect(isTurnStateOverview(withMetrics)).toBe(true);
+ // 旧 proxy 没有这四个字段仍必须通过。
+ expect(isTurnStateOverview(fixture)).toBe(true);
+ expect(isTurnStateOverview({ ...fixture, summary: { ...withMetrics.summary, active_attempts: -1 } })).toBe(false);
+ expect(isTurnStateOverview({ ...fixture, summary: { ...withMetrics.summary, active_accepted: 'many' } })).toBe(false);
+ // since 是时间戳：非 ISO 与其它时间字段同一口径，必须拒绝。
+ expect(isTurnStateOverview({ ...fixture, summary: { ...withMetrics.summary, since: 'not-a-time' } })).toBe(false);
+});
 // 200 上限保持 fail-closed：超量由生产端修复，Keeper 不放宽。
 it('still rejects more than 200 events', () => {
  expect(isTurnStateOverview({ ...fixture, events: Array(201).fill(fixture.events[0]) })).toBe(false);

@@ -44,6 +44,13 @@ type TurnStateCounters struct {
 	ActiveProbes    int64  `json:"active_probes"`
 	AcceptedProbes  int64  `json:"accepted_probes"`
 	RejectedProbes  int64  `json:"rejected_probes"`
+	// Additive (§3.1 of the observability contract): the merged active-collection
+	// counters across the generic probe and ticket-harvest paths, plus the start of the
+	// cumulative window. Pointers keep older proxies valid.
+	ActiveAttempts *int64  `json:"active_attempts,omitempty"`
+	ActiveAccepted *int64  `json:"active_accepted,omitempty"`
+	ActiveRejected *int64  `json:"active_rejected,omitempty"`
+	Since          *string `json:"since,omitempty"`
 }
 type TurnStateSession struct {
 	EntryId          string            `json:"entry_id"`
