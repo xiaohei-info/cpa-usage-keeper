@@ -434,14 +434,14 @@ FROM (
 		%s AS observed_epoch,
 		ROW_NUMBER() OVER (PARTITION BY %s, model ORDER BY %s DESC, id DESC) AS row_number
 	FROM usage_events
-	WHERE TRIM(upstream_model) <> '' AND TRIM(model) <> ''
+	WHERE api_group_key = ? AND TRIM(upstream_model) <> '' AND TRIM(model) <> ''
 		AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
 ) WHERE row_number = 1
 ORDER BY observed_epoch DESC, account_entry_id, requested_model
 LIMIT ?`, epochExpression, modelSubstitutionObservedGroupExpression, epochExpression, epochExpression, epochExpression)
 
 	rows, err := db.WithContext(ctx).Raw(query,
-		coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix(), modelSubstitutionCurrentLimit).Rows()
+		CodexProxyAPIGroupKey, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix(), modelSubstitutionCurrentLimit).Rows()
 	if err != nil {
 		return nil, fmt.Errorf("load model substitution current rows: %w", err)
 	}
@@ -503,10 +503,10 @@ func loadModelSubstitutionGroupAggregates(ctx context.Context, db *gorm.DB, wind
 	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS state_check_observed,
 	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS state_check_failed
 FROM usage_events
-WHERE TRIM(model) <> '' AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
+WHERE api_group_key = ? AND TRIM(model) <> '' AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
 GROUP BY account_entry_id, requested_model`, mismatchedCase, stateCheckObservedCase, stateCheckFailedCase, epochExpression, epochExpression)
 
-	rows, err := db.WithContext(ctx).Raw(query, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix()).Rows()
+	rows, err := db.WithContext(ctx).Raw(query, CodexProxyAPIGroupKey, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix()).Rows()
 	if err != nil {
 		return nil, fmt.Errorf("load model substitution group aggregates: %w", err)
 	}
@@ -696,11 +696,11 @@ func loadModelSubstitutionRows(ctx context.Context, db *gorm.DB, window ModelSub
 	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS state_check_observed,
 	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS state_check_failed
 FROM usage_events
-WHERE timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
+WHERE api_group_key = ? AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
 GROUP BY requested_model, upstream_model, bucket_key`,
 		modelSubstitutionBucketExpression(window.BucketSeconds), stateCheckObservedCase, stateCheckFailedCase, epochExpression, epochExpression)
 
-	rows, err := db.WithContext(ctx).Raw(query, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix()).Rows()
+	rows, err := db.WithContext(ctx).Raw(query, CodexProxyAPIGroupKey, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix()).Rows()
 	if err != nil {
 		return nil, fmt.Errorf("load model substitution rows: %w", err)
 	}

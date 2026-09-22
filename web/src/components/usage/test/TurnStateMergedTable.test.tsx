@@ -112,14 +112,26 @@ it('sorts by replacement rate and by request count', async () => {
 it('shows active and passive collection separately and flags probe timeouts', async () => {
   const { node, root } = await render([row({ probe_attempts: 8, probe_timeouts: 2 })], [{
     ...fixture.sessions[0], entry_id: 'acct-a', model: 'gpt-5.6-sol',
-    injection_count: 12, observation_count: 30, active: null, ready: null,
+    injection_count: 12, observation_count: 30, probe_count: 0, ticket_round_count: 3, active: null, ready: null,
   }]);
   const text = bodyRows(node)[0].textContent ?? '';
   // 注入（累计）、被动、主动三列必须在同一行里各给各的数。
   expect(text).toContain('12');
   expect(text).toContain('30');
+  // 当前档的主动采集读会话上的实时计数（ticket_round_count + probe_count），不是窗口聚合。
+  expect(text).toContain('3');
+  await act(async () => root.unmount());
+});
+
+it('shows the historical probe aggregate with the success/failure split and timeouts', async () => {
+  const { node, root } = await render([row({ probe_attempts: 8, probe_accepted: 4, probe_rejected: 4, probe_timeouts: 2 })]);
+  // 切到历史档：主动列改为窗口聚合，并给出成功/未通过与超时。
+  const thirtyDay = [...node.querySelectorAll('button')].find((button) => button.textContent === 'turn_state.model_sub_range_30d');
+  await act(async () => { thirtyDay!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  await act(async () => { await Promise.resolve(); });
+  const text = bodyRows(node)[0].textContent ?? '';
   expect(text).toContain('8');
-  // 超时单独标出，不能混进普通失败。
+  expect(text).toContain('turn_state.overview_capture_split:{"accepted":4,"rejected":4}');
   expect(text).toContain('turn_state.merged_timeouts');
   await act(async () => root.unmount());
 });

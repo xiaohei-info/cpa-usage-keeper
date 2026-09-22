@@ -30,6 +30,11 @@ func modelSubstitutionTestEvents(now time.Time) []entities.UsageEvent {
 
 func openModelSubstitutionTestProvider(t *testing.T, now time.Time, events []entities.UsageEvent) *ModelSubstitutionProvider {
 	t.Helper()
+	for index := range events {
+		if events[index].APIGroupKey == "" {
+			events[index].APIGroupKey = CodexProxyAPIGroupKey
+		}
+	}
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "model-substitution.db")})
 	if err != nil {

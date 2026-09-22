@@ -39,6 +39,11 @@ func int64Ptr(value int64) *int64 { return &value }
 
 func openModelSubstitutionCurrentProvider(t *testing.T, now time.Time, events []entities.UsageEvent) *ModelSubstitutionProvider {
 	t.Helper()
+	for index := range events {
+		if events[index].APIGroupKey == "" {
+			events[index].APIGroupKey = CodexProxyAPIGroupKey
+		}
+	}
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "model-substitution-current.db")})
 	if err != nil {
@@ -49,6 +54,26 @@ func openModelSubstitutionCurrentProvider(t *testing.T, now time.Time, events []
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	return NewModelSubstitutionProvider(db)
+}
+
+func TestModelSubstitutionExcludesNonProxyGroups(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	provider := openModelSubstitutionCurrentProvider(t, now, []entities.UsageEvent{
+		{EventKey: "proxy", APIGroupKey: CodexProxyAPIGroupKey, AuthIndex: "proxy-acct", Model: "gpt-5.6-sol", UpstreamModel: "gpt-5.6-sol", Timestamp: now.Add(-time.Minute), StateCheck: "ok"},
+		{EventKey: "openrouter", APIGroupKey: "openrouter", AuthIndex: "other-acct", Model: "openrouter/free", UpstreamModel: "openrouter/free", Timestamp: now.Add(-time.Minute), StateCheck: "ok"},
+	})
+	snapshot, err := provider.ModelSubstitution(context.Background(), "24h", now)
+	if err != nil {
+		t.Fatalf("ModelSubstitution returned error: %v", err)
+	}
+	for _, row := range snapshot.Current {
+		if row.RequestedModel == "openrouter/free" || row.AccountEntryID == "other-acct" {
+			t.Fatalf("non-proxy event leaked into the proxy page: %+v", row)
+		}
+	}
+	if len(snapshot.Current) != 1 || snapshot.Current[0].AccountEntryID != "proxy-acct" {
+		t.Fatalf("unexpected proxy rows: %+v", snapshot.Current)
+	}
 }
 
 func TestModelSubstitutionCurrentKeepsLatestRowPerRequestedModel(t *testing.T) {

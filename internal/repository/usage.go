@@ -2212,6 +2212,10 @@ func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
 // 与 poller 内部使用的常量保持一致。
 const CodexProxySource = "codex-proxy"
 
+// CodexProxyAPIGroupKey 是 Codex Proxy 业务请求在 usage_events.api_group_key 中的分组。
+// 探测使用 CodexProxyProbeAPIGroupKey，模型质量页的业务统计必须只读取这个分组。
+const CodexProxyAPIGroupKey = "codex"
+
 // CodexProxyProbeAPIGroupKey 是主动探测事件在 usage_events.api_group_key 中的独立分组。
 //
 // 这是探测与业务数据的隔离机制：所有既有聚合查询都按 api_group_key 过滤，业务统计拿的

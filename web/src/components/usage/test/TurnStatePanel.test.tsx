@@ -21,8 +21,9 @@ it('shows read-only snapshot, unknown usage, epoch resets and stale failure; pau
   const node = document.createElement('div'); const root = createRoot(node);
   await act(async () => root.render(<TurnStatePanel />));
   expect(node.textContent).toContain('turn_state.current');
-  // 可用性结论卡仍在（全局汇总），账号 x 模型的明细由合并总表承载。
-  expect(node.textContent).toContain('turn_state.overview_ready');
+  // 可用性与采集明细现在都在合并总表的账号 x 模型行里，不再有独立的结论卡。
+  expect(node.textContent).toContain('turn_state.merged_help');
+  expect(node.textContent).not.toContain('turn_state.overview_ready');
   // Turn-State 快照本身仍然只读；页面上唯一的交互控件是时间维度选择器与排序列头。
   const controls = [...node.querySelectorAll('button, input, a')];
   expect(controls.every((control) => control.getAttribute('aria-pressed') !== null)).toBe(true);

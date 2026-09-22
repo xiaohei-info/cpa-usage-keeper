@@ -64,6 +64,8 @@ export interface TurnStateSession {
   injection_count: number;
   observation_count: number;
   probe_count: number;
+  /** 主动 ticket 采集轮数；旧 proxy 不返回时为空。 */
+  ticket_round_count?: number | null;
   strikes: number;
   /** 以下为可加性字段（契约 §8.2）；旧 proxy 不返回时必须仍可渲染。 */
   excluded?: boolean;

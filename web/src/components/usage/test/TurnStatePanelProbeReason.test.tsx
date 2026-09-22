@@ -101,19 +101,17 @@ it('keeps an unknown rule code visible instead of inventing a label', async () =
   await act(async () => root.unmount());
 });
 
-it('shows the attempt split and the last update on both capture cards', async () => {
+it('shows the attempt split and the timeouts on the merged collection columns', async () => {
   const { node, root } = await render(
-    [session({ last_observed_at: fixture.server_time, last_injected_at: null })],
-    { passive_observations: 121, passive_accepted: 0, passive_rejected: 121, active_probes: 12, accepted_probes: 0, rejected_probes: 11 },
+    [session({ last_observed_at: fixture.server_time, last_injected_at: null, observation_count: 121, ticket_round_count: 12 })],
+    undefined,
+    [currentRow({ probe_attempts: 12, probe_accepted: 1, probe_rejected: 11, probe_timeouts: 2, state_check_observed: 121, state_check_failed: 121 })],
   );
-  const passive = node.querySelector('[data-turn-state-passive-observed]');
-  expect(passive).not.toBeNull();
-  // 被动采集已按结果拆分：成功 / 未通过，与主动探测对称。
+  // 被动采集列给出尝试数与成功/未通过拆分，与主动列用同一套措辞。
   expect(node.textContent).toContain('turn_state.overview_capture_split');
-  // 尝试数 121、未通过 121 都要出现，且与主动探测用同一套措辞。
   expect(node.textContent).toContain('121');
-  expect(passive!.textContent).toContain('121');
-  expect(node.textContent).toContain('turn_state.last_updated');
+  // 主动列在当前档读会话上的实时计数。
+  expect(node.textContent).toContain('12');
   await act(async () => root.unmount());
 });
 

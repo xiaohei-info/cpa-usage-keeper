@@ -66,10 +66,12 @@ func TestModelSubstitutionRouteReadsSeededUsageEvents(t *testing.T) {
 
 	now := time.Now()
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "route-match", Model: "gpt-6-astra", UpstreamModel: "gpt-6-astra", Timestamp: now.Add(-40 * time.Minute), StateCheck: "ok"},
-		{EventKey: "route-sub-1", Model: "gpt-6-astra", UpstreamModel: "gpt-5.6-luna", Timestamp: now.Add(-35 * time.Minute), StateCheck: "shape_mismatch", StateCheckReason: "block_mismatch"},
-		{EventKey: "route-sub-2", Model: "gpt-6-astra", UpstreamModel: "gpt-5.6-luna", Timestamp: now.Add(-30 * time.Minute), StateCheck: "expired", StateCheckReason: "expired"},
-		{EventKey: "route-unobserved", Model: "gpt-6-astra", Timestamp: now.Add(-20 * time.Minute), StateCheck: "no_state"},
+		{EventKey: "route-match", APIGroupKey: repository.CodexProxyAPIGroupKey, Model: "gpt-6-astra", UpstreamModel: "gpt-6-astra", Timestamp: now.Add(-40 * time.Minute), StateCheck: "ok"},
+		{EventKey: "route-sub-1", APIGroupKey: repository.CodexProxyAPIGroupKey, Model: "gpt-6-astra", UpstreamModel: "gpt-5.6-luna", Timestamp: now.Add(-35 * time.Minute), StateCheck: "shape_mismatch", StateCheckReason: "block_mismatch"},
+		{EventKey: "route-sub-2", APIGroupKey: repository.CodexProxyAPIGroupKey, Model: "gpt-6-astra", UpstreamModel: "gpt-5.6-luna", Timestamp: now.Add(-30 * time.Minute), StateCheck: "expired", StateCheckReason: "expired"},
+		{EventKey: "route-unobserved", APIGroupKey: repository.CodexProxyAPIGroupKey, Model: "gpt-6-astra", Timestamp: now.Add(-20 * time.Minute), StateCheck: "no_state"},
+		// 非 Codex Proxy 分组（如 openrouter）绝不能进模型质量页。
+		{EventKey: "route-openrouter", APIGroupKey: "openrouter", Model: "openrouter/free", UpstreamModel: "openrouter/free", Timestamp: now.Add(-20 * time.Minute), StateCheck: "ok"},
 	}); err != nil {
 		t.Fatalf("seed usage events: %v", err)
 	}

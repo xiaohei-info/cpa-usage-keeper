@@ -434,47 +434,6 @@ it('shows an未就绪 State for the account-model row instead of claiming readin
   await act(async () => root.unmount());
 });
 
-it('dates each capture card from its own events, not from the injection timestamp', async () => {
-  // 仅观察模式下从不注入，last_injected_at 恒为空；主动探测卡必须用最近一次探测事件的时间。
-  const { node, root } = await render({
-    sessions: [session({ last_observed_at: null, last_injected_at: null })],
-    summary: { ...fixture.summary, active_probes: 3, passive_observations: 5 },
-    events: [
-      { id: 'p1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'passive', action: 'reject', result: 'block_mismatch', length: null, blocks: null, reason: 'block_mismatch', observed_blocks: 11, expected_blocks: 10, route_id: null, usage: null },
-      { id: 'a1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'active', action: 'reject', result: 'incomplete', length: null, blocks: null, reason: null, observed_blocks: null, expected_blocks: null, route_id: null, usage: null },
-    ],
-  });
-  const text = node.textContent ?? '';
-  // 两张卡都必须给出时间（STRINGS 把 last_updated 译成“最近更新 {{time}}”），不能是“暂无”。
-  expect((text.match(/最近更新/g) ?? []).length).toBe(2);
-  expect(text).not.toContain('最近更新 暂无');
-  await act(async () => root.unmount());
-});
-
-it('does not show the non-terminal dispatched event as an unknown failure', async () => {
-  const { node, root } = await render({
-    events: [
-      event({ id: 'dispatch', action: 'probe', result: 'dispatched', observed_blocks: null, reason: null }),
-      event({ id: 'accepted', action: 'accept', result: 'accepted', observed_blocks: 10, expected_blocks: 10, reason: null }),
-    ],
-  });
-  expect(node.querySelector('[data-turn-state-active-failure]')).toBeNull();
-  expect(node.textContent).not.toContain('未知原因（dispatched）');
-  await act(async () => root.unmount());
-});
-
-it('no longer renders an events timeline', async () => {
-  // 事件时间线对用户没有可操作价值，已整体移除。
-  const { node, root } = await render({
-    events: [
-      event({ id: 'dispatch', action: 'probe', result: 'dispatched', observed_blocks: null }),
-      event({ id: 'real' }),
-    ],
-  });
-  expect(node.textContent).not.toContain('最近事件');
-  await act(async () => root.unmount());
-});
-
 it('carries the failed rule and the whole shape on the merged table row', async () => {
   const { node, root } = await render({}, {
     ...emptySubstitutionPayload(),
@@ -516,109 +475,26 @@ it('shows the resolved account name and falls back to the id prefix', async () =
   await act(async () => root.unmount());
 });
 
-it('keeps the overview cards honest when nothing is ready or injected', async () => {
-  const { node, root } = await render({ summary: { ...fixture.summary, usable: 0, sessions: 2, ready: 0, injection_count: 0 } });
-  expect(node.textContent).toContain('当前没有可注入的状态');
-  expect(node.textContent).toContain('暂无就绪会话');
-  // §2 第三张卡是模型替换（无数据时说明暂无替换记录），不再是注入次数。
-  expect(node.textContent).toContain('暂无替换记录');
+it('merges the model-quality dashboards: no separate conclusion cards remain', async () => {
+  // 可用状态/主动采集/被动采集/当前账号会话四张卡与合并总表信息重复，已整体移除。
+  const { node, root } = await render({ summary: { ...fixture.summary, usable: 3, sessions: 2, ready: 2, injection_count: 9 } });
+  for (const removed of ['turn_state.overview_ready', 'turn_state.overview_probes', 'turn_state.overview_observed', 'turn_state.overview_sessions', 'turn_state.overview_substitution']) {
+    expect(node.textContent).not.toContain(removed);
+  }
+  // 合并总表仍在，并且账号 x 模型的汇总仍在配置表之前。
+  expect(node.querySelector('[data-turn-state-merged-table]')).not.toBeNull();
+  expect(node.querySelector('[data-turn-state-config]')).not.toBeNull();
   await act(async () => root.unmount());
 });
 
-it('surfaces each capture card failure from its own source, never the other one', async () => {
-  // last_failure 是两种来源共用的最后一个结果；结论卡必须按事件来源取，否则会把主动探测的失败
-  // 显示成被动采集的问题。
-  const { node, root } = await render({
-    sessions: [session({ phase: 'collecting', last_result: 'block_mismatch', last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 } })],
-    summary: { ...fixture.summary, active_probes: 6, rejected_probes: 6, passive_observations: 30, passive_accepted: 0, passive_rejected: 30 },
-    events: [
-      { id: 'p1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'passive', action: 'reject', result: 'block_mismatch', length: null, blocks: null, reason: 'block_mismatch', observed_blocks: 11, expected_blocks: 10, route_id: null, usage: null },
-      { id: 'a1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'active', action: 'reject', result: 'no_state', length: null, blocks: null, reason: null, observed_blocks: null, expected_blocks: null, route_id: null, usage: null },
-    ],
-  });
-  // 被动采集卡说明形状不符并给出完整形状。
-  const passiveNote = node.querySelector('[data-turn-state-passive-failure]');
-  expect(passiveNote).not.toBeNull();
-  expect(passiveNote!.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
-  // 主动探测卡说明它自己的失败原因，不能复用被动采集的那条。
-  const activeNote = node.querySelector('[data-turn-state-active-failure]');
-  expect(activeNote).not.toBeNull();
-  expect(activeNote!.textContent).toContain('上游没有返回 State');
-  expect(activeNote!.textContent).not.toContain('11 块');
+it('keeps collection data on the merged row instead of a duplicate card', async () => {
+  const { node, root } = await render(
+    { sessions: [session({ entry_id: 'acct-1', model: 'gpt-6-astra', injection_count: 7, observation_count: 10, ticket_round_count: 4 })] },
+    { ...emptySubstitutionPayload(), current: [currentRow({ probe_attempts: 8, probe_accepted: 5, probe_rejected: 3, probe_timeouts: 1, state_check_observed: 10, state_check_failed: 4 })] },
+  );
+  const rowText = node.querySelector('[data-turn-state-merged-table] tbody tr')!.textContent ?? '';
+  expect(rowText).toContain('7');
+  expect(rowText).toContain('10');
+  expect(rowText).toContain('4');
   await act(async () => root.unmount());
-});
-
-it('shows the merged active-collection counters when the proxy reports them', async () => {
-  // generic probe (active_probes=0) + ticket harvest (12 attempts) 合并后必须显示 12，而不是 0。
-  const { node, root } = await render({
-    summary: { ...fixture.summary, active_probes: 0, accepted_probes: 0, rejected_probes: 0,
-      active_attempts: 13, active_accepted: 1, active_rejected: 12 },
-  });
-  const card = [...node.querySelectorAll('h3')].find((item) => item.textContent === '主动采集')?.closest('.card');
-  expect(card).toBeTruthy();
-  expect(card!.textContent).toContain('13');
-  expect(card!.textContent).toContain('成功 1 次 · 未通过 12 次');
-  await act(async () => root.unmount());
-});
-
-it('falls back to active_probes when the proxy predates the merged counters', async () => {
-  // 旧 proxy 不返回 active_attempts：卡片必须回退，绝不能显示成 0 次采集。
-  const { node, root } = await render({
-    summary: { ...fixture.summary, active_probes: 7, accepted_probes: 2, rejected_probes: 5 },
-  });
-  const card = [...node.querySelectorAll('h3')].find((item) => item.textContent === '主动采集')?.closest('.card');
-  expect(card!.textContent).toContain('7');
-  expect(card!.textContent).toContain('成功 2 次 · 未通过 5 次');
-  await act(async () => root.unmount());
-});
-
-it('shows the rolling hourly dispatch rate when the proxy reports it', async () => {
-  // 累计数回答不了"现在跑多快"；实时速率行是用户把控消耗的唯一数字。
-  const { node, root } = await render({
-    summary: { ...fixture.summary, active_attempts: 13, active_accepted: 1, active_rejected: 12, active_last_hour: 7 },
-  });
-  const rate = node.querySelector('[data-turn-state-active-last-hour]');
-  expect(rate).not.toBeNull();
-  expect(rate!.textContent).toBe('过去 1 小时 7 次');
-  await act(async () => root.unmount());
-});
-
-it('omits the hourly rate row entirely on a proxy that does not report it', async () => {
-  // 旧 proxy 无该字段：整行不渲染，绝不退化成 "过去 1 小时 0 次"。
-  const { node, root } = await render({
-    summary: { ...fixture.summary, active_attempts: 13, active_accepted: 1, active_rejected: 12 },
-  });
-  expect(node.querySelector('[data-turn-state-active-last-hour]')).toBeNull();
-  expect(node.textContent).not.toContain('过去 1 小时');
-  await act(async () => root.unmount());
-});
-
-it('attributes a ticket-collection failure to the active card, never the passive one', async () => {
-  // ticket 事件过去被来源筛选整份忽略，自动采集失败因此完全不可见。
-  const { node, root } = await render({
-    summary: { ...fixture.summary, active_attempts: 4, active_accepted: 0, active_rejected: 4, passive_observations: 2, passive_rejected: 2 },
-    events: [
-      event({ id: 't1', source: 'ticket', action: 'harvest', result: 'ticket_model_mismatch', reason: 'ticket_model_mismatch', observed_blocks: null, expected_blocks: null }),
-    ],
-  });
-  const activeNote = node.querySelector('[data-turn-state-active-failure]');
-  expect(activeNote).not.toBeNull();
-  expect(activeNote!.textContent).toContain('上游返回的模型不一致，采集失败');
-  expect(activeNote!.textContent).not.toContain('未知原因');
-  expect(node.querySelector('[data-turn-state-passive-failure]')).toBeNull();
-  await act(async () => root.unmount());
-});
-
-it('renders the cumulative start only when the proxy reports it', async () => {
-  const withSince = await render({ summary: { ...fixture.summary, active_attempts: 3, since: NOW } });
-  const line = withSince.node.querySelector('[data-turn-state-active-since]');
-  expect(line).not.toBeNull();
-  expect(line!.textContent).toContain('累计自');
-  await act(async () => withSince.root.unmount());
-
-  // 旧 proxy 无 since：不得渲染这一行，也不得编造时间。
-  const withoutSince = await render({ summary: { ...fixture.summary, active_attempts: 3 } });
-  expect(withoutSince.node.querySelector('[data-turn-state-active-since]')).toBeNull();
-  expect(withoutSince.node.textContent).not.toContain('累计自');
-  await act(async () => withoutSince.root.unmount());
 });
