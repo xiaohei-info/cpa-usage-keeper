@@ -61,8 +61,9 @@ it('renders one row per account and model, splitting the same model across accou
   ]);
   const rows = bodyRows(node);
   expect(rows).toHaveLength(2);
-  expect(rows[0].textContent).toContain('xiaohei.info@gmail.com');
-  expect(rows[1].textContent).toContain('vampire728ly@163.com');
+  // 默认按账号名升序：vampire… 在 xiaohei… 之前（v < x）。
+  expect(rows[0].textContent).toContain('vampire728ly@163.com');
+  expect(rows[1].textContent).toContain('xiaohei.info@gmail.com');
   // 两行都是同一个请求模型，但必须并存而不是被合并。
   expect(rows[0].textContent).toContain('gpt-5.6-sol');
   expect(rows[1].textContent).toContain('gpt-5.6-sol');
@@ -99,13 +100,35 @@ it('sorts by replacement rate and by request count', async () => {
     row({ account_entry_id: 'a', account_name: 'low', mismatch_rate: 5, request_count: 100 }),
     row({ account_entry_id: 'b', account_name: 'high', mismatch_rate: 90, request_count: 1 }),
   ]);
-  // 默认按替换率降序：最高的在最前面。
+  // 默认按账号名升序：high 排在 low 前面（h < l）。
   expect(bodyRows(node)[0].textContent).toContain('high');
 
-  // 切到历史档才有替换率列；用当前档验证请求数排序。
+  // 点请求数列头切换排序。
   const requestSort = [...node.querySelectorAll('button')].find((button) => (button.textContent ?? '').includes('turn_state.merged_requests'));
   await act(async () => { requestSort!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   expect(bodyRows(node)[0].textContent).toContain('low');
+  await act(async () => root.unmount());
+});
+
+it('sorts by account name and by model name', async () => {
+  const { node, root } = await render([
+    row({ account_entry_id: 'c', account_name: 'zeta@example.com', requested_model: 'gpt-5.6-sol' }),
+    row({ account_entry_id: 'a', account_name: 'alpha@example.com', requested_model: 'gpt-5.6-terra' }),
+    row({ account_entry_id: 'b', account_name: 'alpha@example.com', requested_model: 'gpt-5.6-luna' }),
+  ]);
+  // 默认账号升序；同账号内按模型升序（luna 在 terra 前）。
+  const names = bodyRows(node).map((r) => r.textContent ?? '');
+  expect(names[0]).toContain('alpha@example.com');
+  expect(names[0]).toContain('gpt-5.6-luna');
+  expect(names[1]).toContain('gpt-5.6-terra');
+  expect(names[2]).toContain('zeta@example.com');
+
+  // 点模型列头：新列默认降序（terra > sol > luna），再点一次才升序。
+  const modelSort = [...node.querySelectorAll('button')].find((button) => (button.textContent ?? '').includes('turn_state.merged_model'));
+  await act(async () => { modelSort!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  expect(bodyRows(node)[0].textContent).toContain('gpt-5.6-terra');
+  await act(async () => { modelSort!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  expect(bodyRows(node)[0].textContent).toContain('gpt-5.6-luna');
   await act(async () => root.unmount());
 });
 

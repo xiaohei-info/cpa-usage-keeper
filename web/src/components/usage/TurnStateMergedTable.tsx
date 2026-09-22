@@ -115,8 +115,16 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
           <th scope="col" colSpan={3}>{t('turn_state.merged_group_collection')}</th>
         </tr>
         <tr>
-          <th scope="col">{t('turn_state.merged_account')}</th>
-          <th scope="col">{t('turn_state.merged_model')}</th>
+          <th scope="col" className={pageStyles.sortableHeader}>
+            <button type="button" className={pageStyles.sortHeaderButton} onClick={() => toggleSort('account')} aria-pressed={sort.key === 'account'}>
+              {t('turn_state.merged_account')} {sortIndicator('account')}
+            </button>
+          </th>
+          <th scope="col" className={pageStyles.sortableHeader}>
+            <button type="button" className={pageStyles.sortHeaderButton} onClick={() => toggleSort('model')} aria-pressed={sort.key === 'model'}>
+              {t('turn_state.merged_model')} {sortIndicator('model')}
+            </button>
+          </th>
           <th scope="col">{t('turn_state.merged_upstream')}</th>
           <th scope="col">{t('turn_state.merged_last_observed')}</th>
           <th scope="col">{t('turn_state.merged_state_shape')}</th>

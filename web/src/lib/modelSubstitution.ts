@@ -376,7 +376,7 @@ export function toRelativeTimeAmount(ageSeconds: number | null | undefined): Rel
 }
 
 /** 合并总表可排序的列；未在列表中的列不参与排序。 */
-export type ModelSubstitutionSortKey = 'requests' | 'mismatch_rate' | 'state_check_failure_rate' | 'probe_attempts';
+export type ModelSubstitutionSortKey = 'account' | 'model' | 'requests' | 'mismatch_rate' | 'state_check_failure_rate' | 'probe_attempts';
 export type ModelSubstitutionSortDirection = 'asc' | 'desc';
 
 export interface ModelSubstitutionSort {
@@ -384,8 +384,8 @@ export interface ModelSubstitutionSort {
   direction: ModelSubstitutionSortDirection;
 }
 
-/** 默认按替换率降序：最严重的账号 x 模型排在最上面。 */
-export const DEFAULT_MODEL_SUBSTITUTION_SORT: ModelSubstitutionSort = { key: 'mismatch_rate', direction: 'desc' };
+/** 默认按账号名升序，同一账号内按模型名升序：表是一份“按账号分组”的清单，定位比排名更重要。 */
+export const DEFAULT_MODEL_SUBSTITUTION_SORT: ModelSubstitutionSort = { key: 'account', direction: 'asc' };
 
 /** 账号显示名：优先服务端解析的名字，否则用 id 前 8 位，最后给一个中性占位。 */
 export function accountDisplayName(row: Pick<ModelSubstitutionCurrentRow, 'account_name' | 'account_entry_id'>): string {
@@ -398,6 +398,7 @@ export function accountDisplayName(row: Pick<ModelSubstitutionCurrentRow, 'accou
 /**
  * 按选定列排序行；null 百分比永远排在有样本的行之后（升序时相反），
  * 因为“无样本”不是 0%，不应该混进“最健康”那一端。
+ * 账号列与模型列按显示名做本地化字符串比较：中文账号名不能按码点乱排。
  */
 export function sortModelSubstitutionRows(
   rows: ModelSubstitutionCurrentRow[],
@@ -405,14 +406,30 @@ export function sortModelSubstitutionRows(
 ): ModelSubstitutionCurrentRow[] {
   const value = (row: ModelSubstitutionCurrentRow): number | null => {
     switch (sort.key) {
+      case 'account':
+      case 'model': return null; // 文本列走下面的 text 分支
       case 'requests': return row.request_count;
       case 'mismatch_rate': return row.mismatch_rate;
       case 'state_check_failure_rate': return row.state_check_failure_rate;
       case 'probe_attempts': return row.probe_attempts;
     }
   };
+  const text = (row: ModelSubstitutionCurrentRow): string => sort.key === 'model'
+    ? row.requested_model
+    : accountDisplayName(row);
   const direction = sort.direction === 'asc' ? 1 : -1;
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   return [...rows].sort((a, b) => {
+    if (sort.key === 'account' || sort.key === 'model') {
+      const primary = collator.compare(text(a), text(b)) * direction;
+      if (primary !== 0) return primary;
+      // 主键同值时用另一维打破并列，保证行序稳定（账号相同时按模型，模型相同时按账号）。
+      const secondary = sort.key === 'account'
+        ? collator.compare(a.requested_model, b.requested_model)
+        : collator.compare(accountDisplayName(a), accountDisplayName(b));
+      if (secondary !== 0) return secondary;
+      return collator.compare(`${accountDisplayName(a)}\u0000${a.requested_model}`, `${accountDisplayName(b)}\u0000${b.requested_model}`);
+    }
     const left = value(a);
     const right = value(b);
     if (left === null && right === null) return 0;
@@ -421,6 +438,6 @@ export function sortModelSubstitutionRows(
     if (right === null) return -1;
     if (left !== right) return (left - right) * direction;
     // 同值时按账号+模型稳定排序，避免每次重渲染行序抖动。
-    return `${accountDisplayName(a)}${a.requested_model}`.localeCompare(`${accountDisplayName(b)}${b.requested_model}`);
+    return collator.compare(`${accountDisplayName(a)}\u0000${a.requested_model}`, `${accountDisplayName(b)}\u0000${b.requested_model}`);
   });
 }
