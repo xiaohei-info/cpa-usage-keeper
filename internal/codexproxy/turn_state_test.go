@@ -385,3 +385,58 @@ func TestTurnStateTimeout(t *testing.T) {
 		t.Fatal("expected timeout")
 	}
 }
+
+// 会话级被动拆分与 ticket_round_count 必须真的穿过 Go 白名单。
+// ticket_round_count 曾经只加了 TS 侧、漏了 Go 侧，于是被静默丢弃。
+func TestTurnStateOverviewKeepsPerSessionPassiveSplit(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/turn_state_overview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	additive := `"passive_accepted": 6, "passive_rejected": 65, "ticket_round_count": 12, `
+	body := strings.Replace(string(fixture), `"entry_id": "entry-1",`, additive+`"entry_id": "entry-1",`, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	got, err := NewClient(server.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot rejected: %v", err)
+	}
+	session := got.Sessions[0]
+	if session.PassiveAccepted == nil || *session.PassiveAccepted != 6 {
+		t.Fatalf("passive_accepted dropped: %#v", session.PassiveAccepted)
+	}
+	if session.PassiveRejected == nil || *session.PassiveRejected != 65 {
+		t.Fatalf("passive_rejected dropped: %#v", session.PassiveRejected)
+	}
+	if session.TicketRoundCount == nil || *session.TicketRoundCount != 12 {
+		t.Fatalf("ticket_round_count dropped: %#v", session.TicketRoundCount)
+	}
+
+	// 再序列化（Keeper 就是把它原样发给前端的）必须保留这三个键。
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"passive_accepted", "passive_rejected", "ticket_round_count"} {
+		if !strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("%s dropped on re-serialization", key)
+		}
+	}
+
+	// 旧 proxy 不带这些字段时仍然可解（指针保持 nil，不是 0）。
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(fixture)
+	}))
+	defer old.Close()
+	legacy, err := NewClient(old.URL, "test-token", time.Second).TurnStateOverview(context.Background())
+	if err != nil {
+		t.Fatalf("legacy snapshot rejected: %v", err)
+	}
+	if legacy.Sessions[0].PassiveAccepted != nil || legacy.Sessions[0].TicketRoundCount != nil {
+		t.Fatal("absent additive fields must stay nil, not become zero")
+	}
+}

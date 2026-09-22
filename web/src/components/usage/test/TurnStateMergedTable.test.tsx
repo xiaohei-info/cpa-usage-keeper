@@ -165,3 +165,40 @@ it('shows an explicit empty state instead of an empty table', async () => {
   expect(node.textContent).toContain('turn_state.merged_empty');
   await act(async () => root.unmount());
 });
+
+it('reads the passive split from the session proxy counters, never by subtracting the window aggregate', async () => {
+  // 曾经的 bug：session.observation_count（proxy 累计）减去 row.state_check_failed
+  //（keeper 24h 窗口）得到无意义的"成功数"（实测假 14 次）。
+  // 正确做法是只读 proxy 同一份数据里的 accepted/rejected。
+  const { node, root } = await render(
+    // 窗口聚合刻意给一个会误导的值：若实现仍在相减，就会显示 71-57=14。
+    [row({ state_check_observed: 57, state_check_failed: 57 })],
+    [{
+      ...fixture.sessions[0], entry_id: 'acct-a', model: 'gpt-5.6-sol',
+      observation_count: 71, passive_accepted: 6, passive_rejected: 65,
+      injection_count: 0, active: null, ready: null,
+    }],
+  );
+  const text = bodyRows(node)[0].textContent ?? '';
+  // 必须显示 proxy 的 6/65，而不是相减得到的 14。
+  expect(text).toContain('"accepted":6');
+  expect(text).toContain('"rejected":65');
+  expect(text).not.toContain('"accepted":14');
+  await act(async () => root.unmount());
+});
+
+it('falls back neutrally when an older proxy omits the split', async () => {
+  // 旧 proxy 没有 passive_accepted/rejected：不得相减造数，也不得抛错。
+  const { node, root } = await render(
+    [row({ state_check_observed: 57, state_check_failed: 57 })],
+    [{ ...fixture.sessions[0], entry_id: 'acct-a', model: 'gpt-5.6-sol', observation_count: 71, injection_count: 0, active: null, ready: null }],
+  );
+  const text = bodyRows(node)[0].textContent ?? '';
+  expect(text).toContain('71');
+  // 关键：拆分为空时不得编造“全部成功 71 / 未通过 0”，也不得自定义一个拆分。
+  expect(text).not.toContain('"accepted":71');
+  expect(text).not.toContain('overview_capture_split');
+  expect(text).not.toContain('undefined');
+  expect(text).not.toContain('NaN');
+  await act(async () => root.unmount());
+});

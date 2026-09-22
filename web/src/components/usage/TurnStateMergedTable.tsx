@@ -162,9 +162,19 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
           const upstreamTone = !row.observed ? 'neutral' : row.matched ? 'success' : 'danger';
           const mismatchRate = percentText(row.mismatch_rate);
           const degradedRate = percentText(row.state_check_failure_rate);
+          // 当前档只读 proxy 的同一份数据：observation_count 与 accepted/rejected 同源同生命周期。
+          // 绝不能用 session 的累计值去减 keeper 的窗口聚合 —— 两个数据源、两个时间窗，
+          // 相减会凭空造出"成功次数"（实测出现过假 14 次）。
           const passiveObserved = historical ? row.state_check_observed : (session?.observation_count ?? row.state_check_observed);
-          const passiveFailed = row.state_check_failed;
-          const passiveAccepted = Math.max(0, passiveObserved - passiveFailed);
+          const sessionAccepted = session?.passive_accepted ?? null;
+          const sessionRejected = session?.passive_rejected ?? null;
+          // 当前档：只在 proxy 同时给出两端时拆分，否则只报总数。
+          // 绝不能拿总数减 0 冒充“全部成功”，也不能拿它去减 keeper 的窗口聚合
+          // （不同数据源、不同时间窗，会凭空造出“成功次数”）。
+          const passiveFailed: number | null = historical ? row.state_check_failed : sessionRejected;
+          const passiveAccepted: number | null = historical && passiveFailed !== null
+            ? Math.max(0, passiveObserved - passiveFailed)
+            : sessionAccepted;
           const activeAttempts = historical ? row.probe_attempts : ((session?.ticket_round_count ?? 0) + (session?.probe_count ?? 0));
           const activeAccepted = historical ? row.probe_accepted : 0;
           const activeRejected = historical ? row.probe_rejected : 0;
@@ -197,7 +207,9 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
             </td>
             <td className={styles.collectionCell}>
               <strong>{passiveObserved ? safeCount(passiveObserved) : '—'}</strong>
-              {passiveObserved > 0 && <small className={styles.detail}>{t('turn_state.overview_capture_split', { accepted: passiveAccepted, rejected: passiveFailed })}</small>}
+              {/* 拆分缺失（旧 proxy）时只给总数，绝不编造成功/未通过。 */}
+              {passiveObserved > 0 && passiveAccepted !== null && passiveFailed !== null
+                && <small className={styles.detail}>{t('turn_state.overview_capture_split', { accepted: passiveAccepted, rejected: passiveFailed })}</small>}
             </td>
             <td className={styles.collectionCell}>
               <strong>{activeAttempts ? safeCount(activeAttempts) : '—'}</strong>

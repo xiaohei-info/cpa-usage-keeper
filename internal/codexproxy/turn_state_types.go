@@ -69,6 +69,11 @@ type TurnStateSession struct {
 	Ready            *TurnStateSummary `json:"ready"`
 	InjectionCount   int64             `json:"injection_count"`
 	ObservationCount int64             `json:"observation_count"`
+	// 被动观测的成功/未通过拆分。与 ObservationCount 同源同生命周期，
+	// 满足 passive_accepted + passive_rejected == observation_count；
+	// 旧 proxy 不返回时为空，展示层必须中性退化而不是自己相减。
+	PassiveAccepted *int64 `json:"passive_accepted,omitempty"`
+	PassiveRejected *int64 `json:"passive_rejected,omitempty"`
 	ProbeCount       int64             `json:"probe_count"`
 	Strikes          int64             `json:"strikes"`
 	// Additive contract fields (codex-proxy.turn-state-overview.v1). Optional so a
@@ -80,6 +85,9 @@ type TurnStateSession struct {
 	LastFailure        *TurnStateFailure `json:"last_failure,omitempty"`
 	WsConnectionReused *int64            `json:"ws_connection_reused,omitempty"`
 	PlanProvenance     *string           `json:"plan_provenance,omitempty"`
+	// TicketRoundCount 是该 账号×模型 的主动采集轮数。上一轮加入了 TS 白名单
+	// 却漏了这里，于是被后端静默丢弃、前端永远拿不到。
+	TicketRoundCount *int64 `json:"ticket_round_count,omitempty"`
 }
 
 // TurnStateFailure is the structured reason the most recent probe/observation did
