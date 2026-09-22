@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/timeutil"
 
 	"gorm.io/gorm"
@@ -150,19 +152,34 @@ type ModelSubstitutionTopSubstitution struct {
 	Count int64
 }
 
-// ModelSubstitutionCurrentObservation 是单个请求模型在窗口内最近一次观测到的上游应答。
+// ModelSubstitutionCurrentObservation 是单个「账号 x 模型」在窗口内的观测与采集汇总。
 // 只携带展示所需字段，绝不含 turn-state 原文、指纹、prompt 或错误正文。
+//
+// 按账号分组是刻意的：同一请求模型可以在多个账号上被服务成不同的上游模型，
+// 只按模型分组会让这些差异互相覆盖。
 type ModelSubstitutionCurrentObservation struct {
 	RequestedModel string
 	UpstreamModel  string
 	Matched        bool
 	ObservedAt     time.Time
 	AccountEntryID string
+	// AccountName 是账号显示名（别名 -> 邮箱），空表示未登记，由展示层回退到 id 前缀。
+	AccountName string
 	// StateCheck/StateCheckReason 空值表示上游未上报；未知码原样保留，由展示层中性呈现。
 	StateCheck               string
 	StateCheckReason         string
 	StateCheckObservedBlocks *int64
 	StateCheckExpectedBlocks *int64
+	// 以下为本组窗口聚合：请求数、替换数、状态检查分母与失败数。
+	RequestCount       int64
+	Mismatched         int64
+	StateCheckObserved int64
+	StateCheckFailed   int64
+	// 以下为该组主动探测执行统计（读 api_group_key='codex-probe'）。
+	ProbeAttempts int64
+	ProbeAccepted int64
+	ProbeRejected int64
+	ProbeTimeouts int64
 }
 
 // ModelSubstitutionSnapshot 是模型替换观测接口的完整有界快照。
@@ -267,11 +284,93 @@ func (p *ModelSubstitutionProvider) ModelSubstitution(ctx context.Context, range
 	if err != nil {
 		return ModelSubstitutionSnapshot{}, err
 	}
+	// 合并表的行键是账号 x 模型：把观测、业务聚合、探测聚合三份数据按同一个键并起来。
+	// 只出现在聚合里的组（例如窗口内有过请求但从没返回过上游模型）也必须出行，
+	// 否则用户会在表里“看不到”一个确实在跑的账号。
+	aggregates, err := loadModelSubstitutionGroupAggregates(ctx, p.db, window)
+	if err != nil {
+		return ModelSubstitutionSnapshot{}, err
+	}
+	probes, err := loadProbeGroupAggregates(ctx, p.db, window)
+	if err != nil {
+		return ModelSubstitutionSnapshot{}, err
+	}
+	current, err = mergeModelSubstitutionGroups(ctx, p.db, current, aggregates, probes)
+	if err != nil {
+		return ModelSubstitutionSnapshot{}, err
+	}
 	snapshot.Current = current
 	return snapshot, nil
 }
 
-// modelSubstitutionCurrentRow 是最近观测查询的原始行；timestamp 由 SQL 返回文本，
+// mergeModelSubstitutionGroups 把观测行、业务聚合、探测聚合按「账号 x 模型」合成同一批行。
+//
+// 输出顺序与 SQL 一致（观测时间降序），没有观测的组排在末尾，保证表格稳定且可预测。
+func mergeModelSubstitutionGroups(ctx context.Context, db *gorm.DB, observations []ModelSubstitutionCurrentObservation, aggregates map[modelSubstitutionGroupKey]modelSubstitutionGroupAggregate, probes map[modelSubstitutionGroupKey]probeGroupAggregate) ([]ModelSubstitutionCurrentObservation, error) {
+	merged := make(map[modelSubstitutionGroupKey]*ModelSubstitutionCurrentObservation, len(observations))
+	order := make([]modelSubstitutionGroupKey, 0, len(observations))
+	for _, observation := range observations {
+		key := modelSubstitutionGroupKey{account: observation.AccountEntryID, model: observation.RequestedModel}
+		if _, exists := merged[key]; exists {
+			continue
+		}
+		copy := observation
+		merged[key] = &copy
+		order = append(order, key)
+	}
+	// 只出现在聚合里的组：先按业务聚合建行，再补上只有探测数据的组。
+	for key := range aggregates {
+		if _, exists := merged[key]; exists {
+			continue
+		}
+		merged[key] = &ModelSubstitutionCurrentObservation{RequestedModel: key.model, AccountEntryID: key.account}
+		order = append(order, key)
+	}
+	for key := range probes {
+		if _, exists := merged[key]; exists {
+			continue
+		}
+		merged[key] = &ModelSubstitutionCurrentObservation{RequestedModel: key.model, AccountEntryID: key.account}
+		order = append(order, key)
+	}
+	// 账号名只在有值时填充；解析失败不阻断整份快照（表格退化成 id 前缀）。
+	authIndexes := make([]string, 0, len(order))
+	for _, key := range order {
+		if key.account != "" {
+			authIndexes = append(authIndexes, key.account)
+		}
+	}
+	names, err := loadCodexProxyAccountNames(ctx, db, authIndexes)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ModelSubstitutionCurrentObservation, 0, len(order))
+	for _, key := range order {
+		if len(result) >= modelSubstitutionCurrentLimit {
+			// 合并后仍必须有界：分组键变细（账号 x 模型）后行数会比按模型分组更多，
+			// 上限拿来卡最终输出，保证响应体不会被无界行数撞破。
+			break
+		}
+		row := merged[key]
+		row.AccountName = names[key.account]
+		if aggregate, ok := aggregates[key]; ok {
+			row.RequestCount = aggregate.RequestCount
+			row.Mismatched = aggregate.Mismatched
+			row.StateCheckObserved = aggregate.StateCheckObserved
+			row.StateCheckFailed = aggregate.StateCheckFailed
+		}
+		if probe, ok := probes[key]; ok {
+			row.ProbeAttempts = probe.ProbeAttempts
+			row.ProbeAccepted = probe.ProbeAccepted
+			row.ProbeRejected = probe.ProbeRejected
+			row.ProbeTimeouts = probe.ProbeTimeouts
+		}
+		result = append(result, *row)
+	}
+	return result, nil
+}
+
+// modelSubstitutionCurrentRow 是观测查询的原始行；timestamp 由 SQL 返回文本，
 // 因为 Raw 查询绕过了 storageTime serializer。
 type modelSubstitutionCurrentRow struct {
 	RequestedModel           string `gorm:"column:requested_model"`
@@ -284,7 +383,32 @@ type modelSubstitutionCurrentRow struct {
 	StateCheckExpectedBlocks *int64 `gorm:"column:state_check_expected_blocks"`
 }
 
-// loadModelSubstitutionCurrent 取每个请求模型最近一次观测。
+// modelSubstitutionGroupKey 是合并表的行键：账号 x 模型。
+//
+// 必须带上账号：同一请求模型会在不同账号上被服务成不同的上游模型（实测 gpt-5.6-sol
+// 横跨 3 个账号），只按模型分组会让这些差异互相覆盖。
+type modelSubstitutionGroupKey struct {
+	account string
+	model   string
+}
+
+// modelSubstitutionGroupAggregate 是单个账号 x 模型的业务窗口聚合。
+type modelSubstitutionGroupAggregate struct {
+	RequestCount       int64
+	Mismatched         int64
+	StateCheckObserved int64
+	StateCheckFailed   int64
+}
+
+// probeGroupAggregate 是单个账号 x 模型的主动探测聚合（独立 api_group_key）。
+type probeGroupAggregate struct {
+	ProbeAttempts int64
+	ProbeAccepted int64
+	ProbeRejected int64
+	ProbeTimeouts int64
+}
+
+// loadModelSubstitutionCurrent 取每个「账号 x 模型」最近一次观测。
 // 用窗口函数在 SQL 内完成“每组取最新”，避免把整个窗口的原始行搬进内存；
 // 排序按真实 instant（epoch 秒）而不是带 offset 的文本，再用 id 打破同秒并列。
 func loadModelSubstitutionCurrent(ctx context.Context, db *gorm.DB, window ModelSubstitutionWindow) ([]ModelSubstitutionCurrentObservation, error) {
@@ -308,13 +432,13 @@ FROM (
 		state_check_observed_blocks,
 		state_check_expected_blocks,
 		%s AS observed_epoch,
-		ROW_NUMBER() OVER (PARTITION BY model ORDER BY %s DESC, id DESC) AS row_number
+		ROW_NUMBER() OVER (PARTITION BY %s, model ORDER BY %s DESC, id DESC) AS row_number
 	FROM usage_events
 	WHERE TRIM(upstream_model) <> '' AND TRIM(model) <> ''
 		AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
 ) WHERE row_number = 1
-ORDER BY observed_epoch DESC, requested_model
-LIMIT ?`, epochExpression, epochExpression, epochExpression, epochExpression)
+ORDER BY observed_epoch DESC, account_entry_id, requested_model
+LIMIT ?`, epochExpression, modelSubstitutionObservedGroupExpression, epochExpression, epochExpression, epochExpression)
 
 	rows, err := db.WithContext(ctx).Raw(query,
 		coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix(), modelSubstitutionCurrentLimit).Rows()
@@ -351,6 +475,169 @@ LIMIT ?`, epochExpression, epochExpression, epochExpression, epochExpression)
 		return nil, fmt.Errorf("iterate model substitution current rows: %w", err)
 	}
 	return current, nil
+}
+
+// modelSubstitutionObservedGroupExpression 是业务分组键的唯一写法。
+// 与 last/window 聚类保持一致，避免三处各自写一套导致分组结果不同。
+const modelSubstitutionObservedGroupExpression = "auth_index"
+
+// loadModelSubstitutionGroupAggregates 按账号 x 模型聚合窗口内的请求数、替换数与状态检查分母。
+// 只读 api_group_key = 业务值（探测数据在另一分组，天然不会进到这里）。
+func loadModelSubstitutionGroupAggregates(ctx context.Context, db *gorm.DB, window ModelSubstitutionWindow) (map[modelSubstitutionGroupKey]modelSubstitutionGroupAggregate, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	coarseStart := timeutil.FormatStorageTime(window.Start.Add(-24 * time.Hour))
+	coarseEnd := timeutil.FormatStorageTime(window.End.Add(24 * time.Hour))
+	epochExpression := "CAST(strftime('%s', timestamp) AS INTEGER)"
+	stateCheckObservedCase := fmt.Sprintf("TRIM(state_check) <> '' AND TRIM(state_check) <> '%s'", stateCheckNoStateCode)
+	stateCheckFailedCase := fmt.Sprintf("%s AND TRIM(state_check) <> '%s'", stateCheckObservedCase, stateCheckOKCode)
+	// 替换率的分母只算带上游模型信息的行，与 IsUpstreamModelMatch 同口径：
+	// 没有 upstream_model 的请求既不算一致也不算替换。
+	mismatchedCase := fmt.Sprintf("TRIM(upstream_model) <> '' AND TRIM(upstream_model) <> TRIM(model)")
+	query := fmt.Sprintf(`SELECT
+	TRIM(auth_index) AS account_entry_id,
+	model AS requested_model,
+	COUNT(*) AS request_count,
+	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS mismatched,
+	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS state_check_observed,
+	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS state_check_failed
+FROM usage_events
+WHERE TRIM(model) <> '' AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
+GROUP BY account_entry_id, requested_model`, mismatchedCase, stateCheckObservedCase, stateCheckFailedCase, epochExpression, epochExpression)
+
+	rows, err := db.WithContext(ctx).Raw(query, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix()).Rows()
+	if err != nil {
+		return nil, fmt.Errorf("load model substitution group aggregates: %w", err)
+	}
+	defer rows.Close()
+
+	aggregates := make(map[modelSubstitutionGroupKey]modelSubstitutionGroupAggregate)
+	for rows.Next() {
+		var row struct {
+			AccountEntryID     string `gorm:"column:account_entry_id"`
+			RequestedModel     string `gorm:"column:requested_model"`
+			RequestCount       int64  `gorm:"column:request_count"`
+			Mismatched         int64  `gorm:"column:mismatched"`
+			StateCheckObserved int64  `gorm:"column:state_check_observed"`
+			StateCheckFailed   int64  `gorm:"column:state_check_failed"`
+		}
+		if err := db.ScanRows(rows, &row); err != nil {
+			return nil, fmt.Errorf("scan model substitution group aggregate: %w", err)
+		}
+		key := modelSubstitutionGroupKey{account: row.AccountEntryID, model: strings.TrimSpace(row.RequestedModel)}
+		aggregates[key] = modelSubstitutionGroupAggregate{
+			RequestCount:       row.RequestCount,
+			Mismatched:         row.Mismatched,
+			StateCheckObserved: row.StateCheckObserved,
+			StateCheckFailed:   row.StateCheckFailed,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model substitution group aggregates: %w", err)
+	}
+	return aggregates, nil
+}
+
+// loadProbeGroupAggregates 按账号 x 模型聚合主动探测执行统计。
+//
+// 只读 api_group_key = "codex-probe"：这就是探测与业务数据的隔离点，业务聚合拿的是
+// 另一个分组，两者不会互相污染。
+func loadProbeGroupAggregates(ctx context.Context, db *gorm.DB, window ModelSubstitutionWindow) (map[modelSubstitutionGroupKey]probeGroupAggregate, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	coarseStart := timeutil.FormatStorageTime(window.Start.Add(-24 * time.Hour))
+	coarseEnd := timeutil.FormatStorageTime(window.End.Add(24 * time.Hour))
+	epochExpression := "CAST(strftime('%s', timestamp) AS INTEGER)"
+	stateCheckObservedCase := fmt.Sprintf("TRIM(state_check) <> '' AND TRIM(state_check) <> '%s'", stateCheckNoStateCode)
+	stateCheckFailedCase := fmt.Sprintf("%s AND TRIM(state_check) <> '%s'", stateCheckObservedCase, stateCheckOKCode)
+	query := fmt.Sprintf(`SELECT
+	TRIM(auth_index) AS account_entry_id,
+	model AS requested_model,
+	COUNT(*) AS probe_attempts,
+	SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS probe_rejected,
+	SUM(CASE WHEN TRIM(error_code) = '%s' THEN 1 ELSE 0 END) AS probe_timeouts
+FROM usage_events
+WHERE api_group_key = ? AND TRIM(model) <> ''
+	AND timestamp >= ? AND timestamp < ? AND %s >= ? AND %s < ?
+GROUP BY account_entry_id, requested_model`, stateCheckFailedCase, probeTimeoutCode, epochExpression, epochExpression)
+
+	rows, err := db.WithContext(ctx).Raw(query, probeAPIGroupKey, coarseStart, coarseEnd, window.Start.Unix(), window.End.Unix()).Rows()
+	if err != nil {
+		return nil, fmt.Errorf("load probe group aggregates: %w", err)
+	}
+	defer rows.Close()
+
+	aggregates := make(map[modelSubstitutionGroupKey]probeGroupAggregate)
+	for rows.Next() {
+		var row struct {
+			AccountEntryID string `gorm:"column:account_entry_id"`
+			RequestedModel string `gorm:"column:requested_model"`
+			ProbeAttempts  int64  `gorm:"column:probe_attempts"`
+			ProbeRejected  int64  `gorm:"column:probe_rejected"`
+			ProbeTimeouts  int64  `gorm:"column:probe_timeouts"`
+		}
+		if err := db.ScanRows(rows, &row); err != nil {
+			return nil, fmt.Errorf("scan probe group aggregate: %w", err)
+		}
+		key := modelSubstitutionGroupKey{account: row.AccountEntryID, model: strings.TrimSpace(row.RequestedModel)}
+		// 成功 = 尝试 - 已观测且非 ok（no_state 与未上报都不算失败，与状态检查口径同源）。
+		attempts := row.ProbeAttempts
+		rejected := row.ProbeRejected
+		if rejected > attempts {
+			rejected = attempts
+		}
+		aggregates[key] = probeGroupAggregate{
+			ProbeAttempts: attempts,
+			ProbeAccepted: attempts - rejected,
+			ProbeRejected: rejected,
+			ProbeTimeouts: row.ProbeTimeouts,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate probe group aggregates: %w", err)
+	}
+	return aggregates, nil
+}
+
+// CodexProxyProbeAPIGroupKey 是主动探测事件在 usage_events.api_group_key 中的独立分组。
+//
+// 这是探测与业务数据的隔离机制：所有既有聚合查询都按 api_group_key 过滤，业务统计拿的
+// 是业务分组，因此探测数据天然被排除，不需要改动任何一处查询。source 两者都是
+// codex-proxy，因为探测确实也是这个 producer 产出的。
+const probeAPIGroupKey = CodexProxyProbeAPIGroupKey
+
+// probeTimeoutCode 是 proxy 为“采集超时”定义的独立结果码；与 transport_error 区分开，
+// 否则超时会被当成普通网络失败，用户无法从表格里看出到底是超时还是连不上。
+const probeTimeoutCode = "probe_timeout"
+
+// loadCodexProxyAccountNames 解析账号显示名：别名（用户设置）优先，其次邮箱，最后留空
+// 由展示层回退到 id 前缀。绝不在这里编造一个名字。
+func loadCodexProxyAccountNames(ctx context.Context, db *gorm.DB, authIndexes []string) (map[string]string, error) {
+	names := make(map[string]string, len(authIndexes))
+	if len(authIndexes) == 0 {
+		return names, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for start := 0; start < len(authIndexes); start += analysisIdentityLookupBatchSize {
+		end := min(start+analysisIdentityLookupBatchSize, len(authIndexes))
+		var identities []entities.UsageIdentity
+		if err := db.WithContext(ctx).Where("identity IN ? AND auth_type = ? AND is_deleted = ?", authIndexes[start:end], entities.UsageIdentityAuthTypeCodexProxy, false).Find(&identities).Error; err != nil {
+			return nil, fmt.Errorf("load codex proxy account names: %w", err)
+		}
+		for _, identity := range identities {
+			name := strings.TrimSpace(helper.UsageIdentityDisplayName(identity))
+			// 显示名与 id 相同时不算有意义的名字，留空让展示层用它自己的短前缀。
+			if name == "" || name == identity.Identity {
+				continue
+			}
+			names[identity.Identity] = name
+		}
+	}
+	return names, nil
 }
 
 // modelSubstitutionBucketKeys 把桶起点映射成 SQL 分组键，必须与 modelSubstitutionBucketExpression 一致。

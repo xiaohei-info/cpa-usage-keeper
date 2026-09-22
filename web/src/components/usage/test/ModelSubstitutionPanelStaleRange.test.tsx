@@ -4,12 +4,15 @@
  * Regression for the review's P1: after a failed refresh the panel kept the
  * previous payload but highlighted the newly clicked range, so the header
  * labelled 30d while every number on screen still belonged to 24h.
+ *
+ * 时间维度按钮现在由父级（合并总表卡片）持有，本组件只消费控制器；
+ * 因此这里直接驱动控制器，并断言失败刷新后仍然显示上一份数据且标出过期。
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModelSubstitutionResponse } from '@/lib/modelSubstitution';
-import { ModelSubstitutionPanel } from '../ModelSubstitutionPanel';
+import type { ModelSubstitutionRangeSelection, ModelSubstitutionResponse } from '@/lib/modelSubstitution';
+import { ModelSubstitutionPanel, useModelSubstitution } from '../ModelSubstitutionPanel';
 
 const fetchModelSubstitution = vi.fn();
 
@@ -35,11 +38,13 @@ const payload = (range: string): ModelSubstitutionResponse => ({
   series: [],
   matrix: [],
   substitutions: [],
+  current: [],
   truncated: false,
 });
 
 let container: HTMLDivElement;
 let root: Root;
+let selectRange: ((selection: ModelSubstitutionRangeSelection) => void) | null = null;
 
 beforeEach(() => {
   container = document.createElement('div');
@@ -50,11 +55,12 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  selectRange = null;
   vi.clearAllMocks();
 });
 
 describe('ModelSubstitutionPanel stale range labelling', () => {
-  it('keeps the previous range active when the new range fails to load', async () => {
+  it('keeps the previous data and flags it stale when the new range fails to load', async () => {
     let call = 0;
     fetchModelSubstitution.mockImplementation(async () => {
       call += 1;
@@ -62,27 +68,24 @@ describe('ModelSubstitutionPanel stale range labelling', () => {
       throw new Error('upstream unavailable');
     });
 
-    await act(async () => { root.render(<ModelSubstitutionPanel />); });
+    const Harness = () => {
+      const controller = useModelSubstitution();
+      selectRange = controller.selectRange;
+      return <ModelSubstitutionPanel controller={controller} />;
+    };
+    await act(async () => { root.render(<Harness />); });
     await act(async () => { await Promise.resolve(); });
 
-    const rangeButton = (label: string) => Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === label);
-    const activeLabels = () => Array.from(container.querySelectorAll('button'))
-      .filter((button) => button.getAttribute('aria-pressed') === 'true')
-      .map((button) => button.textContent);
+    // 第一次成功后必须已渲染上一份数据。
+    expect(container.textContent).toContain('turn_state.model_sub_coverage');
 
-    // The first successful payload was 24h.
-    expect(activeLabels()).toContain('turn_state.model_sub_range_24h');
-
-    // Clicking 30d fails; the displayed numbers are still the 24h payload, so the
-    // active pill must not move to 30d and the panel must say the data is stale.
-    await act(async () => { rangeButton('turn_state.model_sub_range_30d')?.click(); });
+    // 切到一个会失败的范围：数字仍是上一份，因此必须标出过期而不是静默当成新范围。
+    await act(async () => { selectRange!('30d'); });
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await Promise.resolve(); });
 
     expect(call).toBeGreaterThan(1);
-    expect(activeLabels()).toContain('turn_state.model_sub_range_24h');
-    expect(activeLabels()).not.toContain('turn_state.model_sub_range_30d');
     expect(container.querySelector('[data-model-subscription-stale]')).not.toBeNull();
+    expect(container.querySelector('[data-model-subscription-coverage]')).not.toBeNull();
   });
 });

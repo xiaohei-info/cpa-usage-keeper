@@ -528,8 +528,10 @@ func eventInsertArgs(event generatedEvent) []any {
 		"",
 		event.ReasoningEffort, event.ServiceTier, event.ResponseServiceTier,
 		event.ExecutorType,
-		// 基准数据不模拟 Codex turn-state 观测，五个新列固定为空串/NULL。
-		"", "", "", nil, nil,
+		// 基准数据不模拟 Codex turn-state 观测，六个新列固定为空串/NULL。
+		// 顺序必须与 UsageEventStorageColumns 一致：state_check, state_check_reason,
+		// error_code, state_check_observed_blocks, state_check_expected_blocks。
+		"", "", "", "", nil, nil,
 		timestamp, event.Source, event.AuthIndex, event.Failed,
 		// 基准数据不带 HTTP 状态码与流式标记。
 		nil, nil,

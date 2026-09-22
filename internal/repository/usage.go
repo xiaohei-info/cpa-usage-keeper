@@ -2212,6 +2212,13 @@ func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
 // 与 poller 内部使用的常量保持一致。
 const CodexProxySource = "codex-proxy"
 
+// CodexProxyProbeAPIGroupKey 是主动探测事件在 usage_events.api_group_key 中的独立分组。
+//
+// 这是探测与业务数据的隔离机制：所有既有聚合查询都按 api_group_key 过滤，业务统计拿的
+// 是业务分组，因此探测数据天然被排除，不需要改动任何一处查询。source 两者都是
+// codex-proxy，因为探测确实也是这个 producer 产出的。
+const CodexProxyProbeAPIGroupKey = "codex-probe"
+
 // FindUsageEventSourceByID 返回事件的来源标识，供请求日志按来源选择上游。
 func FindUsageEventSourceByID(db *gorm.DB, id int64) (string, error) {
 	if db == nil {

@@ -30,6 +30,10 @@ type Event struct {
 	Model               string    `json:"model"`
 	ReasoningEffort     string    `json:"reasoning_effort"`
 	// 以下可观测性字段全为可选；缺失与 null 等价，都表示未观察到。
+	//
+	// Probe 标记这条记录来自主动探测（采集/复验），而不是业务请求。缺省等价于
+	// false（业务请求），旧 producer 不返回该字段时保持兼容。
+	Probe                    *bool   `json:"probe"`
 	UpstreamModel            *string `json:"upstream_model"`
 	StateCheck               *string `json:"state_check"`
 	StateCheckReason         *string `json:"state_check_reason"`

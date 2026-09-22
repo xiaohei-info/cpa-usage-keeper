@@ -5,8 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { ChartData, ChartOptions } from 'chart.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api';
-import { MODEL_SUBSTITUTION_SCHEMA, normalizeModelSubstitution, type ModelSubstitutionResponse } from '@/lib/modelSubstitution';
-import { ModelSubstitutionPanel, buildModelSubstitutionChartData, buildModelSubstitutionChartOptions, formatModelSubstitutionBucket } from '../ModelSubstitutionPanel';
+import { MODEL_SUBSTITUTION_SCHEMA, normalizeModelSubstitution, type ModelSubstitutionRangeSelection, type ModelSubstitutionResponse } from '@/lib/modelSubstitution';
+import { ModelSubstitutionPanel, useModelSubstitution, buildModelSubstitutionChartData, buildModelSubstitutionChartOptions, formatModelSubstitutionBucket } from '../ModelSubstitutionPanel';
 
 const fetchModelSubstitution = vi.fn();
 type ChartKind = 'bar' | 'line';
@@ -70,15 +70,24 @@ const emptyResponse = (): ModelSubstitutionResponse => response({
 let root: Root | null = null;
 let node: HTMLDivElement | null = null;
 
-const render = async (payload: unknown) => {
+// 时间维度按钮由父级持有；测试里用这个控制器观察/驱动选择。
+let selectRange: ((selection: ModelSubstitutionRangeSelection) => void) | null = null;
+
+const render = async (payload: unknown, options: { onAuthRequired?: () => void } = {}) => {
   // fetchModelSubstitution 在真实路径上已经归一化；这里复用同一个归一化器，
   // 保证组件只面对契约内形状，也顺便验证旧后端缺字段时不崩。
   const normalized = normalizeModelSubstitution(payload);
-  fetchModelSubstitution.mockResolvedValueOnce(normalized);
+  if (normalized) fetchModelSubstitution.mockResolvedValue(normalized);
   node = document.createElement('div');
   document.body.appendChild(node);
   root = createRoot(node);
-  await act(async () => { root!.render(<ModelSubstitutionPanel />); });
+  // 用真实 hook 驱动控制器，面板本身不持有选择状态。
+  const Harness = () => {
+    const controller = useModelSubstitution({ onAuthRequired: options.onAuthRequired });
+    selectRange = controller.selectRange;
+    return <ModelSubstitutionPanel controller={controller} />;
+  };
+  await act(async () => { root!.render(<Harness />); });
   return node;
 };
 
@@ -88,6 +97,7 @@ afterEach(async () => {
   node?.remove();
   root = null;
   node = null;
+  selectRange = null;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
@@ -95,7 +105,8 @@ afterEach(async () => {
 describe('ModelSubstitutionPanel', () => {
   it('shows the covered sample size, summary cards and the top substitution', async () => {
     const element = await render(response());
-    expect(fetchModelSubstitution).toHaveBeenCalledWith('24h', expect.anything());
+    // 默认档是“当前”：向服务端要最小窗口，实时表不看历史趋势。
+    expect(fetchModelSubstitution).toHaveBeenCalledWith('1h', expect.anything());
     // upstream_model 是新字段，覆盖样本量必须始终显示。
     expect(element.textContent).toContain('turn_state.model_sub_coverage:{"count":183}');
     expect(element.textContent).toContain('183');
@@ -185,27 +196,22 @@ describe('ModelSubstitutionPanel', () => {
     expect(rateCell?.getAttribute('data-tone')).toBe('danger');
   });
 
-  it('switches range on click and keeps the previous snapshot visible while loading', async () => {
+  it('keeps the previous snapshot visible while a new range loads', async () => {
+    // 时间维度按钮现在由父级（合并总表卡片）持有；本组件只消费控制器。
+    // 这里验证失败重拉时上一份数据仍在，不会闪成“不可用”。
     await render(response());
-    fetchModelSubstitution.mockResolvedValueOnce(response({ range: '1h', bucket_seconds: 60, series: [] }));
-    const buttons = [...document.querySelectorAll('button')];
-    const oneHour = buttons.find((button) => button.textContent === 'turn_state.model_sub_range_1h');
-    expect(oneHour).toBeTruthy();
-    await act(async () => { oneHour!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(fetchModelSubstitution).toHaveBeenLastCalledWith('1h', expect.anything());
+    fetchModelSubstitution.mockImplementationOnce(() => new Promise(() => {}));
+    selectRange!('6h');
     expect(node!.textContent).not.toContain('turn_state.model_sub_unavailable');
   });
 
   it('reports a failure without leaking the raw error and honours 401 handling', async () => {
     const onAuthRequired = vi.fn();
     fetchModelSubstitution.mockRejectedValueOnce(new ApiError('private detail', 401));
-    node = document.createElement('div');
-    document.body.appendChild(node);
-    root = createRoot(node);
-    await act(async () => { root!.render(<ModelSubstitutionPanel onAuthRequired={onAuthRequired} />); });
+    const element = await render(undefined, { onAuthRequired });
     expect(onAuthRequired).toHaveBeenCalledOnce();
-    expect(node.textContent).toContain('turn_state.model_sub_unavailable');
-    expect(node.textContent).not.toContain('private detail');
+    expect(element.textContent).toContain('turn_state.model_sub_unavailable');
+    expect(element.textContent).not.toContain('private detail');
   });
 
   it('does not crash on payloads without the newer field shapes', async () => {
@@ -219,7 +225,7 @@ describe('ModelSubstitutionPanel', () => {
       matrix: [{ requested_model: 'gpt-6-astra', upstream_model: 'gpt-6-astra', count: 2 }],
       substitutions: [{ requested_model: 'gpt-6-astra', requests_with_model: 2, mismatched: 0, match_rate: 100 }],
     });
-    expect(element.textContent).toContain('turn_state.model_sub_title');
+    expect(element.textContent).toContain('turn_state.model_sub_trend_title');
     expect(element.textContent).not.toContain('NaN');
     // 旧后端缺 match_rate：按契约显示不可用（中性色），不能把缺失当成 100%。
     expect(document.querySelector('[data-model-subscription-match-rate] [data-tone]')?.getAttribute('data-tone')).toBe('neutral');
@@ -263,118 +269,11 @@ describe('model substitution chart helpers', () => {
   });
 });
 
-describe('Latest model observations table', () => {
-  const currentPayload = (current: unknown[]) => response({ current } as Partial<ModelSubstitutionResponse>);
-
-  it('lists one row per requested model with match/replaced result and relative time', async () => {
-    const element = await render(currentPayload([
-      {
-        requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-luna', matched: false,
-        observed_at: '2026-09-21T12:25:00+08:00', age_seconds: 300,
-        state_check: 'shape_mismatch', state_check_reason: 'block_mismatch',
-        state_check_observed_blocks: 11, state_check_expected_blocks: 10, account_entry_id: 'acct-1',
-      },
-      {
-        requested_model: 'gpt-5.6-sol', upstream_model: 'gpt-5.6-sol', matched: true,
-        observed_at: '2026-09-21T12:29:00+08:00', age_seconds: 45,
-        state_check: 'ok', state_check_reason: null,
-        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
-      },
-    ]));
-
-    // 表必须出现在历史图表之前：先回答“现在谁被换成了谁”。
-    const currentBlock = element.querySelector('[data-model-subscription-current]');
-    const chartBlock = element.querySelector('[data-model-subscription-chart]');
-    expect(currentBlock).not.toBeNull();
-    expect(chartBlock).not.toBeNull();
-    expect(currentBlock!.compareDocumentPosition(chartBlock!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    // 被替换行：红色 + 人类可读标签，并带出失败规则与块数。
-    const replaced = currentBlock!.querySelector('[data-current-result="danger"]');
-    expect(replaced?.textContent).toContain('turn_state.model_sub_current_replaced');
-    const replacedState = currentBlock!.querySelector('[data-current-state="danger"]');
-    expect(replacedState?.textContent).toContain('usage_stats.request_events_state_check_degraded');
-    expect(replacedState?.textContent).toContain('block_mismatch');
-
-    // 一致行：绿色。
-    const matched = currentBlock!.querySelector('[data-current-result="success"]');
-    expect(matched?.textContent).toContain('turn_state.model_sub_current_match');
-    expect(currentBlock!.querySelector('[data-current-state="success"]')?.textContent)
-      .toContain('usage_stats.request_events_state_check_ok');
-
-    // 相对时间必须渲染，而不是只给原始时间戳。
-    expect(currentBlock!.textContent).toContain('turn_state.model_sub_current_minutes_ago');
-  });
-
-  it('renders an unreported state as neutral instead of healthy', async () => {
-    const element = await render(currentPayload([
-      {
-        requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-terra', matched: false,
-        observed_at: '2026-09-21T12:28:00+08:00', age_seconds: 120,
-        state_check: null, state_check_reason: null,
-        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
-      },
-    ]));
-
-    const block = element.querySelector('[data-model-subscription-current]');
-    // 未上报 state 既不能是绿，也不能被算成一致。
-    expect(block!.querySelector('[data-current-state="neutral"]')).not.toBeNull();
-    expect(block!.querySelector('[data-current-state="success"]')).toBeNull();
-    expect(block!.querySelector('[data-current-result="danger"]')).not.toBeNull();
-  });
-
-  it('keeps an unknown state code neutral and shows the raw code', async () => {
-    const element = await render(currentPayload([
-      {
-        requested_model: 'gpt-6-astra', upstream_model: 'gpt-6-astra', matched: true,
-        observed_at: '2026-09-21T12:29:00+08:00', age_seconds: 30,
-        state_check: 'brand_new_verdict', state_check_reason: 'brand_new_reason',
-        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
-      },
-    ]));
-
-    const block = element.querySelector('[data-model-subscription-current]');
-    const neutral = block!.querySelector('[data-current-state="neutral"]');
-    // 未来新增的判定码必须中性呈现，并保留原始码以便排查。
-    expect(neutral).not.toBeNull();
-    expect(neutral!.textContent).toContain('brand_new_verdict');
-    expect(block!.querySelector('[data-current-state="success"]')).toBeNull();
-  });
-
-  it('shows an explicit empty state when no observation carries an upstream model', async () => {
-    const element = await render(currentPayload([]));
-    const block = element.querySelector('[data-model-subscription-current]');
-    expect(block!.querySelector('[data-model-subscription-current-empty]')?.textContent)
-      .toContain('turn_state.model_sub_current_empty');
-  });
-
-  it('renders the current table even when the historical window is empty', async () => {
-    // 历史桶为空但最近有观测：顶部表仍必须显示，避免“有最新替换但页面说没数据”。
-    const element = await render(response({
-      summary: { requests_with_model: 0, matched: 0, mismatched: 0, match_rate: null, empty: true, top_substitution: null },
-      series: [],
-      matrix: [],
-      substitutions: [],
-      current: [{
-        requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-luna', matched: false,
-        observed_at: '2026-09-21T12:29:00+08:00', age_seconds: 10,
-        state_check: 'ok', state_check_reason: null,
-        state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null,
-      }],
-    } as Partial<ModelSubstitutionResponse>));
-
-    const block = element.querySelector('[data-model-subscription-current]');
-    expect(block!.querySelector('[data-current-result="danger"]')).not.toBeNull();
-    expect(element.textContent).toContain('turn_state.model_sub_empty');
-  });
-});
-
 describe('Latest observations polling', () => {
   it('polls every 30s while visible and stops on unmount', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      const element = await render(response());
-      expect(element.querySelector('[data-model-subscription-current]')).not.toBeNull();
+      await render(response());
       const callsAfterMount = fetchModelSubstitution.mock.calls.length;
 
       // 可见时到点必须再拉一次同一接口。

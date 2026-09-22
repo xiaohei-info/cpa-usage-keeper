@@ -3,7 +3,7 @@ package entities
 import "time"
 
 // UsageEventStorageColumns 是 hot/archive 原始事件复制使用的完整持久化列契约。
-const UsageEventStorageColumns = "id, event_key, api_group_key, provider, endpoint, auth_type, request_id, session_id, parent_session_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, upstream_model, state_check, state_check_reason, state_check_observed_blocks, state_check_expected_blocks, timestamp, source, auth_index, failed, status_code, stream, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, created_at"
+const UsageEventStorageColumns = "id, event_key, api_group_key, provider, endpoint, auth_type, request_id, session_id, parent_session_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, upstream_model, state_check, state_check_reason, error_code, state_check_observed_blocks, state_check_expected_blocks, timestamp, source, auth_index, failed, status_code, stream, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, created_at"
 
 // UsageEventArchive 永久保存已经离开 hot usage_events 的原始事件。
 // 字段必须与 UsageEvent 的持久化列保持一致，但 archive 不承担在线查询，因此不复制二级索引。
@@ -30,6 +30,7 @@ type UsageEventArchive struct {
 	UpstreamModel       string  `gorm:"column:upstream_model;not null;default:''"`
 	StateCheck          string  `gorm:"column:state_check;not null;default:''"`
 	StateCheckReason    string  `gorm:"column:state_check_reason;not null;default:''"`
+	ErrorCode           string  `gorm:"column:error_code;not null;default:''"`
 	// 只在 block_mismatch 上报；NULL 表示未上报，不能与真实 0 块混淆。
 	StateCheckObservedBlocks *int64    `gorm:"column:state_check_observed_blocks"`
 	StateCheckExpectedBlocks *int64    `gorm:"column:state_check_expected_blocks"`

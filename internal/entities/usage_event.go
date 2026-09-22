@@ -29,6 +29,9 @@ type UsageEvent struct {
 	StateCheck string `gorm:"column:state_check;not null;default:''"`
 	// StateCheckReason 是首个失败规则码；空值表示判定为 ok 或 no_state。
 	StateCheckReason string `gorm:"column:state_check_reason;not null;default:''"`
+	// ErrorCode 是 producer 上报的稳定失败码（如 probe_timeout）；空串表示未上报。
+	// 超时必须与普通传输失败区分开，否则用户无法从表格里看出到底是超时还是连不上。
+	ErrorCode string `gorm:"column:error_code;not null;default:''"`
 	// StateCheckObservedBlocks/ExpectedBlocks 仅在 block_mismatch 时上报，NULL 区分“未上报”与真实 0。
 	StateCheckObservedBlocks *int64    `gorm:"column:state_check_observed_blocks"`
 	StateCheckExpectedBlocks *int64    `gorm:"column:state_check_expected_blocks"`

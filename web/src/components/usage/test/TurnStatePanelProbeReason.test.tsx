@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 /**
- * 事件时间线已从页面移除（对用户没有可操作价值），失败原因必须由会话卡承载：
- * 主动探测的拒绝要说明未通过的规则，并把形状作为“块数 / 字符数”整体展示。
+ * 事件时间线已从页面移除（对用户没有可操作价值）。
+ * state 形状与失败规则现在由【合并总表】的一行承载：形状必须作为
+ * “块数 / 字符数”整体展示，未上报时不得编造块数，未知判定码原样保留。
  */
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { fetchTurnStateOverview } from '@/lib/api';
+import { fetchModelSubstitution, fetchTurnStateOverview } from '@/lib/api';
 import { TurnStatePanel } from '../TurnStatePanel';
 import fixture from '../../../../../internal/codexproxy/testdata/turn_state_overview.json';
 import type { TurnStateOverview } from '@/lib/turnState';
@@ -23,8 +24,29 @@ const session = (overrides: Record<string, unknown>) => ({
   ...overrides,
 });
 
-async function render(sessions: unknown[], summary?: Record<string, unknown>) {
+/** 合并总表行；只给出关心的字段，其余按未观测/无样本中性缺省。 */
+const currentRow = (overrides: Record<string, unknown>) => ({
+  requested_model: 'gpt-6-astra', upstream_model: '', matched: false,
+  observed_at: fixture.server_time, observed: false, age_seconds: 0,
+  state_check: null, state_check_reason: null,
+  state_check_observed_blocks: null, state_check_expected_blocks: null,
+  account_entry_id: 'acct-1', account_name: null,
+  request_count: 0, mismatched: 0, mismatch_rate: null,
+  state_check_observed: 0, state_check_failed: 0, state_check_failure_rate: null,
+  probe_attempts: 0, probe_accepted: 0, probe_rejected: 0, probe_timeouts: 0,
+  ...overrides,
+});
+
+const substitutionPayload = (current: unknown[]) => ({
+  schema: 'cpa-usage-keeper.turn-state-model-mismatch.v1', range: '24h',
+  window_start: '2026-09-21T00:00:00Z', window_end: '2026-09-22T00:00:00Z', bucket_seconds: 3600,
+  summary: { requests_with_model: 0, matched: 0, mismatched: 0, match_rate: null, empty: true, top_substitution: null },
+  series: [], matrix: [], substitutions: [], current, truncated: false,
+});
+
+async function render(sessions: unknown[], summary?: Record<string, unknown>, current: unknown[] = []) {
   vi.mocked(fetchTurnStateOverview).mockResolvedValue({ ...fixture, sessions, ...(summary ? { summary: { ...fixture.summary, ...summary } } : {}) } as unknown as TurnStateOverview);
+  vi.mocked(fetchModelSubstitution).mockResolvedValue(substitutionPayload(current) as never);
   const node = document.createElement('div');
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(node);
@@ -32,50 +54,50 @@ async function render(sessions: unknown[], summary?: Record<string, unknown>) {
   return { node, root };
 }
 
-it('names the failed rule and the whole shape on the session card for a block_mismatch rejection', async () => {
-  const { node, root } = await render([session({
-    phase: 'collecting', last_result: 'block_mismatch',
-    last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 },
+it('names the failed rule and the whole shape on the merged table row for a block_mismatch rejection', async () => {
+  const { node, root } = await render([session({ phase: 'collecting' })], undefined, [currentRow({
+    state_check: 'shape_mismatch', state_check_reason: 'block_mismatch',
+    state_check_observed_blocks: 11, state_check_expected_blocks: 10,
   })]);
-  const failure = node.querySelector('[data-turn-state-failure]');
-  expect(failure).not.toBeNull();
+  const cell = node.querySelector('[data-merged-state]');
+  expect(cell).not.toBeNull();
   // 形状是“块数 / 字符数”整体：11 块 = 312 字符，10 块 = 292 字符。
-  expect(failure!.textContent).toContain('"blocks\\":11');
-  expect(failure!.textContent).toContain('"characters\\":312');
-  expect(failure!.textContent).toContain('"blocks\\":10');
-  expect(failure!.textContent).toContain('"characters\\":292');
+  expect(cell!.textContent).toContain('"blocks\\":11');
+  expect(cell!.textContent).toContain('"characters\\":312');
+  expect(cell!.textContent).toContain('"blocks\\":10');
+  expect(cell!.textContent).toContain('"characters\\":292');
   // 不得出现嵌套模板残留。
   expect(node.textContent).not.toContain('{{');
   await act(async () => root.unmount());
 });
 
-it('reports a mismatch that still passed every rule as accepted, not rejected', async () => {
-  const { node, root } = await render([session({
-    phase: 'usable', last_result: 'accepted_model_mismatch', last_upstream_model: 'gpt-5.6-luna', model_mismatch: true,
-    last_failure: null,
+it('renders a mismatch that still passed the rules as its own neutral observation', async () => {
+  // 模型被替换但 state 结构通过：形状列必须是 ok（成功色），不能显示成降智。
+  const { node, root } = await render([session({ phase: 'usable', last_upstream_model: 'gpt-5.6-luna', model_mismatch: true })], undefined, [currentRow({
+    upstream_model: 'gpt-5.6-luna', observed: true, matched: false, state_check: 'ok',
   })]);
-  expect(node.querySelector('[data-turn-state-failure]')).toBeNull();
-  expect(node.textContent).toContain('turn_state.model_replaced');
+  const cell = node.querySelector('[data-merged-state]');
+  expect(cell?.getAttribute('data-merged-state')).toBe('success');
   expect(node.textContent).toContain('gpt-5.6-luna');
   await act(async () => root.unmount());
 });
 
-it('explains no_state and auth blocks without a phantom rule', async () => {
-  const { node, root } = await render([session({
-    last_result: 'no_state', last_failure: { code: 'no_state', reason: null, verdict: 'no_state', observed_blocks: null, expected_blocks: null },
+it('explains no_state without a phantom rule', async () => {
+  const { node, root } = await render([session({})], undefined, [currentRow({
+    state_check: 'no_state', state_check_reason: null,
   })]);
-  const failure = node.querySelector('[data-turn-state-failure]');
-  expect(failure!.textContent).toContain('turn_state.event_no_state');
+  const cell = node.querySelector('[data-merged-state]');
+  expect(cell!.textContent).toContain('usage_stats.request_events_state_check_none');
   // 没有形状数据时不得编造块数。
-  expect(failure!.textContent).not.toContain('- 块');
+  expect(cell!.textContent).not.toContain('- 块');
   await act(async () => root.unmount());
 });
 
 it('keeps an unknown rule code visible instead of inventing a label', async () => {
-  const { node, root } = await render([session({
-    last_result: 'future_rule', last_failure: { code: 'future_rule', reason: 'future_rule', verdict: 'invalid', observed_blocks: null, expected_blocks: null },
+  const { node, root } = await render([session({})], undefined, [currentRow({
+    state_check: 'future_verdict', state_check_reason: 'future_rule',
   })]);
-  expect(node.textContent).toContain('future_rule');
+  expect(node.textContent).toContain('future_verdict');
   await act(async () => root.unmount());
 });
 

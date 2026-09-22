@@ -96,6 +96,37 @@ const STRINGS: Record<string, string> = {
   'usage_stats.request_events_state_check_none': '无',
   'usage_stats.request_events_state_check_degraded': '可能降智',
   'turn_state.model_sub_title': '模型替换观测',
+  'turn_state.merged_help': '合并总表说明',
+  'turn_state.merged_account': '账号',
+  'turn_state.merged_model': '模型',
+  'turn_state.merged_upstream': '上游实际模型',
+  'turn_state.merged_last_observed': '最近观测',
+  'turn_state.merged_state_shape': 'State 形状',
+  'turn_state.merged_requests': '请求',
+  'turn_state.merged_mismatch_rate': '被替换',
+  'turn_state.merged_degraded_rate': '可能降智',
+  'turn_state.merged_current_state': 'State',
+  'turn_state.merged_expires': '剩余有效期',
+  'turn_state.merged_next_probe': '下次采集',
+  'turn_state.merged_injected': '注入',
+  'turn_state.merged_passive': '被动',
+  'turn_state.merged_active': '主动',
+  'turn_state.merged_cumulative': '累计',
+  'turn_state.merged_state_check_split': '已检查 {{observed}} · 未通过 {{failed}}',
+  'turn_state.merged_timeouts': '超时 {{count}} 次',
+  'turn_state.merged_minutes_left': '{{count}} 分钟',
+  'turn_state.merged_state_ready': '就绪（{{shape}}）',
+  'turn_state.merged_state_unobserved': '未上报',
+  'turn_state.merged_group_observation': '观测',
+  'turn_state.merged_group_state': 'State',
+  'turn_state.merged_group_collection': '采集执行',
+  'turn_state.merged_range_current': '当前',
+  'turn_state.merged_empty': '最近范围内没有账号模型观测',
+  'turn_state.merged_unnamed_account': '未命名账号',
+  'turn_state.merged_polling': '页面打开时每 30 秒自动刷新一次。',
+  'turn_state.relative_seconds_ago': '{{count}} 秒前',
+  'turn_state.model_sub_trend_title': '模型替换趋势',
+
   'turn_state.model_sub_help': '只读展示每个请求上游实际返回的模型历史',
   'turn_state.model_sub_range_label': '时间范围',
   'turn_state.model_sub_range_1h': '1 小时',
@@ -225,6 +256,45 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }));
 
 afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+
+/** 合并总表行：只有显式给出的字段非默认，其余按“未观测/无样本”中性缺省。 */
+const currentRow = (overrides: Record<string, unknown>) => ({
+  requested_model: 'gpt-6-astra',
+  upstream_model: '',
+  matched: false,
+  observed_at: NOW,
+  observed: false,
+  age_seconds: 0,
+  state_check: null,
+  state_check_reason: null,
+  state_check_observed_blocks: null,
+  state_check_expected_blocks: null,
+  account_entry_id: 'acct-1',
+  account_name: null,
+  request_count: 0,
+  mismatched: 0,
+  mismatch_rate: null,
+  state_check_observed: 0,
+  state_check_failed: 0,
+  state_check_failure_rate: null,
+  probe_attempts: 0,
+  probe_accepted: 0,
+  probe_rejected: 0,
+  probe_timeouts: 0,
+  ...overrides,
+});
+
+/** 模型替换接口的最小合法载荷；overrides 用来塞入合并总表行。 */
+const emptySubstitutionPayload = () => ({
+  schema: 'cpa-usage-keeper.turn-state-model-mismatch.v1',
+  range: '24h',
+  window_start: '2026-09-21T00:00:00Z',
+  window_end: '2026-09-22T00:00:00Z',
+  bucket_seconds: 3600,
+  summary: { requests_with_model: 0, matched: 0, mismatched: 0, match_rate: null, empty: true, top_substitution: null },
+  series: [], matrix: [], substitutions: [], current: [], truncated: false,
+});
+
 const NOW = fixture.server_time;
 
 const render = async (overrides: Partial<TurnStateOverview> = {}, substitution?: unknown) => {
@@ -258,20 +328,17 @@ it('keeps the contract §1 block order', async () => {
     summary: { requests_with_model: 1, matched: 0, mismatched: 1, match_rate: 0, empty: false,
       top_substitution: { from: 'gpt-6-astra', to: 'gpt-5.6-luna', count: 1 } },
     series: [], matrix: [], substitutions: [], truncated: false,
-    current: [{ requested_model: 'gpt-6-astra', upstream_model: 'gpt-5.6-luna', matched: false,
-      observed_at: NOW, age_seconds: 30, state_check: null, state_check_reason: null,
-      state_check_observed_blocks: null, state_check_expected_blocks: null, account_entry_id: null }],
+    current: [currentRow({ upstream_model: 'gpt-5.6-luna', matched: false, observed: true, age_seconds: 30, account_entry_id: null })],
   };
   const { node, root } = await render({ events: [event({})] }, payload);
-  // 模型替换观测（含内部“最近观测”表）→ 标题/状态 → 结论卡 → 配置表 → 会话 → 事件。
+  // 合并后的页面结构：标题/状态 → 合并总表 → 配置表 → 历史趋势标题。
   const heading = (text: string) => [...node.querySelectorAll('h3')].find((item) => item.textContent === text);
+  // 顺序：大盘（状态 + 合并总表）→ 历史趋势 → 配置状态。
   const markers = [
-    heading('模型替换观测'),
-    node.querySelector('[data-model-subscription-current]'),
     node.querySelector('[data-turn-state-status]'),
-    heading('可用 State'),
+    node.querySelector('[data-turn-state-merged-table]'),
+    heading('模型替换趋势'),
     node.querySelector('[data-turn-state-config]'),
-    heading('账号模型 State'),
   ];
   expect(markers.every(Boolean)).toBe(true);
   for (let index = 1; index < markers.length; index++) {
@@ -318,24 +385,25 @@ it('switches the config table to Team 12 blocks / 332 chars and marks a manual o
 });
 
 it('renders the observed/expected shape as one unit and never a placeholder dash shape', async () => {
-  const { node, root } = await render({
-    sessions: [session({ phase: 'collecting', last_observed_at: NOW, last_result: 'block_mismatch',
-      last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 } })],
-    summary: { ...fixture.summary, active_probes: 6, rejected_probes: 6 },
-    events: [event({})],
+  // 合并总表把 state 形状放在同一行里：实际/目标必须整体出现（块数与字符数成对）。
+  const { node, root } = await render({}, {
+    ...emptySubstitutionPayload(),
+    current: [currentRow({ state_check: 'shape_mismatch', state_check_reason: 'block_mismatch',
+      state_check_observed_blocks: 11, state_check_expected_blocks: 10 })],
   });
-  const failure = node.querySelector('[data-turn-state-failure]');
-  expect(failure?.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
+  const cell = node.querySelector('[data-merged-state]');
+  expect(cell?.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
   expect(node.textContent).not.toContain('- 块');
   expect(node.textContent).not.toContain('- 字符');
   await act(async () => root.unmount());
 });
 
-it('uses 未观测 instead of a dash shape when a failure carries no block counts', async () => {
-  const { node, root } = await render({
-    sessions: [session({ phase: 'empty', last_result: 'no_state', last_failure: { code: 'no_state', reason: null, verdict: 'no_state', observed_blocks: null, expected_blocks: null } })],
+it('uses 未上报 instead of inventing a shape when the upstream reported no state', async () => {
+  const { node, root } = await render({}, {
+    ...emptySubstitutionPayload(),
+    current: [currentRow({ state_check: null, state_check_reason: null })],
   });
-  expect(node.querySelector('[data-turn-state-failure]')?.textContent).toContain('上游没有返回 State');
+  expect(node.querySelector('[data-merged-state]')?.textContent).toContain('未上报');
   expect(node.textContent).not.toContain('未观测 块');
   await act(async () => root.unmount());
 });
@@ -350,15 +418,19 @@ it('never leaves a nested interpolation remnant in the UI', async () => {
   await act(async () => root.unmount());
 });
 
-it('marks an unsupported or excluded session as 不适用 with the reason', async () => {
+it('shows an未就绪 State for the account-model row instead of claiming readiness', async () => {
+  // 没有 active state 的行必须说“尚未就绪”，不能因为行存在就显示成可用。
+  // 行键必须与 session 的 entry_id + model 对得上，否则两边的“同一行”判断会失效。
   const { node, root } = await render({
-    sessions: [session({ phase: 'unsupported', excluded: true, model: 'codex-auto-review' })],
+    sessions: [session({ entry_id: 'acct-1', model: 'gpt-6-astra', phase: 'empty', active: null, ready: null })],
+  }, {
+    ...emptySubstitutionPayload(),
+    current: [currentRow({ account_entry_id: 'acct-1', requested_model: 'gpt-6-astra' })],
   });
-  const card = node.querySelector('article')!;
-  expect(card.textContent).toContain('不适用');
-  expect(card.textContent).toContain('该模型已排除主动探测');
-  // 排除的模型不能再展示探测相关字段。
-  expect(card.textContent).not.toContain('最近探测');
+  const row = node.querySelector('[data-turn-state-merged-table] tbody tr')!;
+  // STRINGS 把 state_unavailable 译成“无可用状态”；关键是绝不能显示成已就绪。
+  expect(row.textContent).toContain('无可用状态');
+  expect(row.textContent).not.toContain('可注入');
   await act(async () => root.unmount());
 });
 
@@ -391,35 +463,27 @@ it('does not show the non-terminal dispatched event as an unknown failure', asyn
   await act(async () => root.unmount());
 });
 
-it('no longer renders an events timeline but keeps the reused-connection counter', async () => {
-  // 事件时间线对用户没有可操作价值，已整体移除；复用连接计数仍由会话卡承载。
+it('no longer renders an events timeline', async () => {
+  // 事件时间线对用户没有可操作价值，已整体移除。
   const { node, root } = await render({
     events: [
       event({ id: 'dispatch', action: 'probe', result: 'dispatched', observed_blocks: null }),
-      event({ id: 'reused', action: 'skip', result: 'ws_connection_reused', observed_blocks: null, reason: null }),
       event({ id: 'real' }),
     ],
-    sessions: [session({ ws_connection_reused: 5 })],
   });
   expect(node.textContent).not.toContain('最近事件');
-  // 复用连接计数仍由会话卡承载。
-  expect(node.textContent).toContain('复用已有连接');
-  expect(node.textContent).toContain('5');
-  const timestamps = [...node.querySelectorAll('article time')];
-  expect(timestamps).toHaveLength(0);
   await act(async () => root.unmount());
 });
 
-it('shows the failed rule and the whole shape on the session card instead of an event row', async () => {
-  const { node, root } = await render({
-    sessions: [session({
-      phase: 'collecting', last_result: 'block_mismatch',
-      last_failure: { code: 'block_mismatch', reason: 'block_mismatch', verdict: 'shape_mismatch', observed_blocks: 11, expected_blocks: 10 },
-    })],
+it('carries the failed rule and the whole shape on the merged table row', async () => {
+  const { node, root } = await render({}, {
+    ...emptySubstitutionPayload(),
+    current: [currentRow({ state_check: 'shape_mismatch', state_check_reason: 'block_mismatch',
+      state_check_observed_blocks: 11, state_check_expected_blocks: 10 })],
   });
-  const failure = node.querySelector('[data-turn-state-failure]');
-  expect(failure).not.toBeNull();
-  expect(failure!.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
+  const cell = node.querySelector('[data-merged-state]');
+  expect(cell).not.toBeNull();
+  expect(cell!.textContent).toContain('实际 11 块 / 312 字符，目标 10 块 / 292 字符');
   await act(async () => root.unmount());
 });
 
@@ -438,18 +502,17 @@ it('renders an old payload without the newer fields instead of crashing', async 
   await act(async () => root.unmount());
 });
 
-it('shows only present diagnostics and no 未知 placeholder rows', async () => {
-  const { node, root } = await render({
-    sessions: [session({ phase: 'usable', diagnostic: 'block_mismatch',
-      active: { usable: true, length: 292, blocks: 10, version: 1, fingerprint: 'abcdef012345', issued_at: NOW, expires_at: '2026-09-22T01:00:00Z', route_id: 'route-1' } })],
+it('shows the resolved account name and falls back to the id prefix', async () => {
+  // 有 account_name 时用它；没有时用 id 前 8 位，两者都不能显示成空单元格。
+  const { node, root } = await render({}, {
+    ...emptySubstitutionPayload(),
+    current: [
+      currentRow({ account_name: 'xiaohei.info@gmail.com', account_entry_id: 'd0f784113bd9d041' }),
+      currentRow({ requested_model: 'gpt-5.6-luna', account_name: null, account_entry_id: '864277fc6d9299dc' }),
+    ],
   });
-  const details = node.querySelector('article details')!;
-  expect(details.textContent).toContain('账号条目 ID');
-  expect(details.textContent).toContain('线路 ID');
-  expect(details.textContent).toContain('State 指纹');
-  expect(details.textContent).toContain('原始诊断码');
-  // 有 active 时形状必须整体出现，且带 remaining。
-  expect(node.textContent).toContain('10 块 / 292 字符');
+  expect(node.textContent).toContain('xiaohei.info@gmail.com');
+  expect(node.textContent).toContain('864277fc');
   await act(async () => root.unmount());
 });
 

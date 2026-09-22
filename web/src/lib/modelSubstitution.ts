@@ -3,9 +3,21 @@
 
 export const MODEL_SUBSTITUTION_SCHEMA = 'cpa-usage-keeper.turn-state-model-mismatch.v1';
 
+// 时间维度：当前实时值优先，其余为窗口聚合。
+// "current" 是默认档：显示实时快照（不请求历史窗口）。
 export const MODEL_SUBSTITUTION_RANGES = ['1h', '6h', '24h', '7d', '30d'] as const;
 export type ModelSubstitutionRange = (typeof MODEL_SUBSTITUTION_RANGES)[number];
+/** 当前档在 UI 上的标识；它对应后端的默认窗口，但展示上强调“实时”。 */
+export const MODEL_SUBSTITUTION_CURRENT = 'current' as const;
+export type ModelSubstitutionRangeSelection = typeof MODEL_SUBSTITUTION_CURRENT | ModelSubstitutionRange;
+export const MODEL_SUBSTITUTION_RANGE_SELECTIONS: readonly ModelSubstitutionRangeSelection[] = [MODEL_SUBSTITUTION_CURRENT, ...MODEL_SUBSTITUTION_RANGES];
 export const DEFAULT_MODEL_SUBSTITUTION_RANGE: ModelSubstitutionRange = '24h';
+/** “当前”档向服务端请求的窗口：实时表不看历史趋势，用最小窗口就够。 */
+export const MODEL_SUBSTITUTION_CURRENT_RANGE: ModelSubstitutionRange = '1h';
+
+/** 历史档才显示窗口聚合列；瞬时列（有效期/下次采集）只在当前档有意义。 */
+export const isHistoricalRange = (selection: ModelSubstitutionRangeSelection): boolean =>
+  selection !== MODEL_SUBSTITUTION_CURRENT;
 
 /** 桶样本低于该值时百分比不可信，图表上单独标注而不是当成确定结论。 */
 export const MODEL_SUBSTITUTION_LOW_BUCKET_SAMPLE = 5;
@@ -55,14 +67,16 @@ export interface ModelSubstitutionRequestedRow {
 }
 
 /**
- * 单个请求模型在所选范围内最近一次观测到的上游应答。
+ * 合并总表的一行：账号 x 模型。
  * age_seconds 由服务端相对其 now 计算并夹紧到 >=0，前端不再自行推断时钟差异。
+ * observed=false 表示该组在窗口内有业务数据但从未观测到上游模型（不能编造一个时刻）。
  */
 export interface ModelSubstitutionCurrentRow {
   requested_model: string;
   upstream_model: string;
   matched: boolean;
   observed_at: string;
+  observed: boolean;
   age_seconds: number;
   /** null 表示上游未上报 state_check，绝不能当成正常。 */
   state_check: string | null;
@@ -71,6 +85,21 @@ export interface ModelSubstitutionCurrentRow {
   state_check_observed_blocks: number | null;
   state_check_expected_blocks: number | null;
   account_entry_id: string | null;
+  /** 账号显示名（别名 -> 邮箱）；null 表示未登记，前端回退到 id 前 8 位。 */
+  account_name: string | null;
+  /** 业务窗口聚合：请求数、替换数与替换率（无带模型信息的样本时 null，不是 0%）。 */
+  request_count: number;
+  mismatched: number;
+  mismatch_rate: number | null;
+  /** 被动采集：已上报 state_check 的样本数、失败数与降智率。 */
+  state_check_observed: number;
+  state_check_failed: number;
+  state_check_failure_rate: number | null;
+  /** 主动探测执行统计（独立 api_group_key），与业务数据严格隔离。 */
+  probe_attempts: number;
+  probe_accepted: number;
+  probe_rejected: number;
+  probe_timeouts: number;
 }
 
 export interface ModelSubstitutionResponse {
@@ -161,18 +190,31 @@ export function normalizeModelSubstitution(value: unknown): ModelSubstitutionRes
       mismatched: safeCount(row.mismatched),
       match_rate: finiteNumberOrNull(row.match_rate),
     })),
-    // 旧后端不带 current；缺失时降级为空数组，页面显示空状态而不是崩溃。
+    // 合并表行：旧的按模型分组载荷没有 observed 与这些聚合计数字段，全部按中性缺省降级。
     current: (Array.isArray(value.current) ? value.current : []).filter(isRecord).map((row) => ({
       requested_model: safeText(row.requested_model),
       upstream_model: safeText(row.upstream_model),
       matched: row.matched === true,
       observed_at: safeText(row.observed_at),
+      // 旧后端不带 observed：有非空 observed_at 就当作已观测，否则视为未观测。
+      observed: typeof row.observed === 'boolean' ? row.observed : safeText(row.observed_at) !== '',
       age_seconds: safeCount(row.age_seconds),
       state_check: nullableText(row.state_check),
       state_check_reason: nullableText(row.state_check_reason),
       state_check_observed_blocks: finiteNumberOrNull(row.state_check_observed_blocks),
       state_check_expected_blocks: finiteNumberOrNull(row.state_check_expected_blocks),
       account_entry_id: nullableText(row.account_entry_id),
+      account_name: nullableText(row.account_name),
+      request_count: safeCount(row.request_count),
+      mismatched: safeCount(row.mismatched),
+      mismatch_rate: finiteNumberOrNull(row.mismatch_rate),
+      state_check_observed: safeCount(row.state_check_observed),
+      state_check_failed: safeCount(row.state_check_failed),
+      state_check_failure_rate: finiteNumberOrNull(row.state_check_failure_rate),
+      probe_attempts: safeCount(row.probe_attempts),
+      probe_accepted: safeCount(row.probe_accepted),
+      probe_rejected: safeCount(row.probe_rejected),
+      probe_timeouts: safeCount(row.probe_timeouts),
     })),
     truncated: value.truncated === true,
   };
@@ -331,4 +373,54 @@ export function toRelativeTimeAmount(ageSeconds: number | null | undefined): Rel
   if (seconds < 3600) return { unit: 'minute', value: Math.floor(seconds / 60) };
   if (seconds < 86_400) return { unit: 'hour', value: Math.floor(seconds / 3600) };
   return { unit: 'day', value: Math.floor(seconds / 86_400) };
+}
+
+/** 合并总表可排序的列；未在列表中的列不参与排序。 */
+export type ModelSubstitutionSortKey = 'requests' | 'mismatch_rate' | 'state_check_failure_rate' | 'probe_attempts';
+export type ModelSubstitutionSortDirection = 'asc' | 'desc';
+
+export interface ModelSubstitutionSort {
+  key: ModelSubstitutionSortKey;
+  direction: ModelSubstitutionSortDirection;
+}
+
+/** 默认按替换率降序：最严重的账号 x 模型排在最上面。 */
+export const DEFAULT_MODEL_SUBSTITUTION_SORT: ModelSubstitutionSort = { key: 'mismatch_rate', direction: 'desc' };
+
+/** 账号显示名：优先服务端解析的名字，否则用 id 前 8 位，最后给一个中性占位。 */
+export function accountDisplayName(row: Pick<ModelSubstitutionCurrentRow, 'account_name' | 'account_entry_id'>): string {
+  const name = (row.account_name ?? '').trim();
+  if (name) return name;
+  const id = (row.account_entry_id ?? '').trim();
+  return id ? id.slice(0, 8) : '';
+}
+
+/**
+ * 按选定列排序行；null 百分比永远排在有样本的行之后（升序时相反），
+ * 因为“无样本”不是 0%，不应该混进“最健康”那一端。
+ */
+export function sortModelSubstitutionRows(
+  rows: ModelSubstitutionCurrentRow[],
+  sort: ModelSubstitutionSort,
+): ModelSubstitutionCurrentRow[] {
+  const value = (row: ModelSubstitutionCurrentRow): number | null => {
+    switch (sort.key) {
+      case 'requests': return row.request_count;
+      case 'mismatch_rate': return row.mismatch_rate;
+      case 'state_check_failure_rate': return row.state_check_failure_rate;
+      case 'probe_attempts': return row.probe_attempts;
+    }
+  };
+  const direction = sort.direction === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const left = value(a);
+    const right = value(b);
+    if (left === null && right === null) return 0;
+    // 无样本行永远排在末尾：升序/降序都不改变这个相对位置。
+    if (left === null) return 1;
+    if (right === null) return -1;
+    if (left !== right) return (left - right) * direction;
+    // 同值时按账号+模型稳定排序，避免每次重渲染行序抖动。
+    return `${accountDisplayName(a)}${a.requested_model}`.localeCompare(`${accountDisplayName(b)}${b.requested_model}`);
+  });
 }

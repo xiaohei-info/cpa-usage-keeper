@@ -94,8 +94,10 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260919_usage_event_stream_status_code",
 		// Codex Proxy 游标/去重表只服务新数据源，追加在既有序列末尾。
 		"20260918_create_codex_proxy_tables",
-		// 上游模型与 turn-state 结构判定列 additive 追加，不回填历史行；日期最新，位于末尾。
+		// 上游模型与 turn-state 结构判定列 additive 追加，不回填历史行。
 		"20260921_usage_event_observability_fields",
+		// 失败码列同样 additive，旧行落空串；探测超时靠它与普通传输失败区分。
+		"20260922_usage_event_error_code",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

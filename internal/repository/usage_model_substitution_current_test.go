@@ -60,19 +60,24 @@ func TestModelSubstitutionCurrentKeepsLatestRowPerRequestedModel(t *testing.T) {
 		t.Fatalf("ModelSubstitution returned error: %v", err)
 	}
 
-	// 只有两个请求模型有可观测的上游模型；terra 只有空值，空 model 行被跳过。
-	if len(snapshot.Current) != 2 {
-		t.Fatalf("expected 2 current rows, got %d: %+v", len(snapshot.Current), snapshot.Current)
+	// 合并表的行键是「账号 x 模型」，且只要该组在窗口内有业务数据（请求/状态检查）就出行，
+	// 即使从没观测到 upstream_model——否则一个确实在跑的账号会从表里“消失”。
+	// 本数据集：sol 1 行；astra 分两行（acct-1 与空账号，同模型不合并）；terra 1 行
+	// （只有请求与状态检查，上游模型未观测）。
+	if len(snapshot.Current) != 4 {
+		t.Fatalf("expected 4 account-model rows, got %d: %+v", len(snapshot.Current), snapshot.Current)
 	}
 
-	byModel := map[string]ModelSubstitutionCurrentObservation{}
+	// 同一个请求模型在不同账号下必须分开成行，而不是互相覆盖。
+	type accountModelKey struct{ account, model string }
+	byKey := map[accountModelKey]ModelSubstitutionCurrentObservation{}
 	for _, row := range snapshot.Current {
-		byModel[row.RequestedModel] = row
+		byKey[accountModelKey{account: row.AccountEntryID, model: row.RequestedModel}] = row
 	}
 
-	astra, ok := byModel["gpt-6-astra"]
+	astra, ok := byKey[accountModelKey{account: "acct-1", model: "gpt-6-astra"}]
 	if !ok {
-		t.Fatalf("missing gpt-6-astra current row: %+v", snapshot.Current)
+		t.Fatalf("missing acct-1 gpt-6-astra current row: %+v", snapshot.Current)
 	}
 	// 必须是最近的那行（-5min），不是 -30min 或 -50min。
 	if astra.UpstreamModel != "gpt-5.6-luna" || astra.Matched {
@@ -95,7 +100,7 @@ func TestModelSubstitutionCurrentKeepsLatestRowPerRequestedModel(t *testing.T) {
 		t.Fatalf("expected account entry id, got %q", astra.AccountEntryID)
 	}
 
-	sol, ok := byModel["gpt-5.6-sol"]
+	sol, ok := byKey[accountModelKey{account: "", model: "gpt-5.6-sol"}]
 	if !ok {
 		t.Fatalf("missing gpt-5.6-sol current row: %+v", snapshot.Current)
 	}
@@ -103,12 +108,24 @@ func TestModelSubstitutionCurrentKeepsLatestRowPerRequestedModel(t *testing.T) {
 		t.Fatalf("expected matching ok row, got %+v", sol)
 	}
 
-	// 无样本的请求模型不得凭空出现。
-	if _, leaked := byModel["gpt-5.6-terra"]; leaked {
-		t.Fatalf("a row without upstream_model leaked into current: %+v", snapshot.Current)
+	// 无上游模型观测的组不得携带编造的上游模型与匹配结论。
+	terra, ok := byKey[accountModelKey{account: "", model: "gpt-5.6-terra"}]
+	if !ok {
+		t.Fatalf("missing gpt-5.6-terra aggregate row: %+v", snapshot.Current)
 	}
-	if _, leaked := byModel[""]; leaked {
-		t.Fatalf("an empty requested model leaked into current: %+v", snapshot.Current)
+	if terra.UpstreamModel != "" || terra.Matched || !terra.ObservedAt.IsZero() {
+		t.Fatalf("an unobserved group must not carry an upstream model: %+v", terra)
+	}
+	// 但它确实有业务数据：请求数与状态检查分母必须照常带上。
+	if terra.RequestCount != 2 || terra.StateCheckObserved != 1 {
+		t.Fatalf("unexpected terra aggregates: %+v", terra)
+	}
+
+	// 空 model 的兜底行必须跳过，避免无标题行。
+	for _, row := range snapshot.Current {
+		if row.RequestedModel == "" {
+			t.Fatalf("an empty requested model leaked into current: %+v", snapshot.Current)
+		}
 	}
 
 	// 窗口外样本不得覆盖窗口内的最近观测。
@@ -197,5 +214,36 @@ func TestEmptyModelSubstitutionSnapshotHasNoCurrentRows(t *testing.T) {
 	// 空快照必须返回空切片而不是 nil，前端才能直接迭代。
 	if snapshot.Current == nil || len(snapshot.Current) != 0 {
 		t.Fatalf("expected an empty non-nil current slice, got %#v", snapshot.Current)
+	}
+}
+
+// 同一请求模型在两个账号上必须各自保留自己的“最近一次观测”，而不是被合并成
+// 全局最新的一行——否则一个账号的真实状态会被另一个账号的观测顶掉。
+func TestModelSubstitutionCurrentKeepsPerAccountLatestObservation(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	provider := openModelSubstitutionCurrentProvider(t, now, []entities.UsageEvent{
+		// 账号 A：最近一次仍是原模型。
+		{EventKey: "a-old", Model: "gpt-5.6-sol", UpstreamModel: "gpt-5.6-luna", Timestamp: now.Add(-40 * time.Minute), AuthIndex: "acct-a"},
+		{EventKey: "a-new", Model: "gpt-5.6-sol", UpstreamModel: "gpt-5.6-sol", Timestamp: now.Add(-20 * time.Minute), AuthIndex: "acct-a"},
+		// 账号 B：最近一次被替换；它比 A 的最新观测更早，绝不能被丢掉。
+		{EventKey: "b-new", Model: "gpt-5.6-sol", UpstreamModel: "gpt-5.6-luna", Timestamp: now.Add(-30 * time.Minute), AuthIndex: "acct-b"},
+	})
+
+	snapshot, err := provider.ModelSubstitution(context.Background(), "24h", now)
+	if err != nil {
+		t.Fatalf("ModelSubstitution returned error: %v", err)
+	}
+	byAccount := map[string]ModelSubstitutionCurrentObservation{}
+	for _, row := range snapshot.Current {
+		byAccount[row.AccountEntryID] = row
+	}
+	if len(byAccount) != 2 {
+		t.Fatalf("expected one row per account, got %+v", snapshot.Current)
+	}
+	if got := byAccount["acct-a"].UpstreamModel; got != "gpt-5.6-sol" {
+		t.Fatalf("acct-a latest observation = %q, want gpt-5.6-sol", got)
+	}
+	if got := byAccount["acct-b"].UpstreamModel; got != "gpt-5.6-luna" {
+		t.Fatalf("acct-b latest observation = %q, want gpt-5.6-luna", got)
 	}
 }

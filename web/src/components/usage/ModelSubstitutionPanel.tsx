@@ -5,7 +5,8 @@ import { Chart } from 'react-chartjs-2';
 import '@/lib/chartjs';
 import { ApiError, fetchModelSubstitution } from '@/lib/api';
 import {
-  DEFAULT_MODEL_SUBSTITUTION_RANGE,
+  MODEL_SUBSTITUTION_CURRENT,
+  MODEL_SUBSTITUTION_CURRENT_RANGE,
   MODEL_SUBSTITUTION_RANGES,
   MODEL_SUBSTITUTION_LOW_BUCKET_SAMPLE,
   buildModelSubstitutionChartSeries,
@@ -14,6 +15,7 @@ import {
   type ModelSubstitutionChartSeries,
   type ModelSubstitutionCurrentRow,
   type ModelSubstitutionRange,
+  type ModelSubstitutionRangeSelection,
   type ModelSubstitutionResponse,
 } from '@/lib/modelSubstitution';
 import { Card } from '@/components/ui/Card';
@@ -185,18 +187,16 @@ interface ModelSubstitutionPanelProps {
   controller?: ModelSubstitutionController;
 }
 
-// 仅供本模块的“最近观测”区块使用。
-interface LatestObservationTableProps {
-  rows: ModelSubstitutionCurrentRow[];
-}
-
-/** 一次拉取、两处展示（最近观测 + 历史趋势），保证同一屏上的数字不会自相矛盾。 */
+/** 一次拉取、两处展示（合并总表 + 历史趋势），保证同一屏上的数字不会自相矛盾。 */
 export interface ModelSubstitutionController {
+  /** 用户选择的档位：“当前”或某个历史窗口。 */
+  selection: ModelSubstitutionRangeSelection;
+  /** 实际生效的历史窗口；选择“当前”时它是后端的最小窗口。 */
   range: ModelSubstitutionRange;
   data: ModelSubstitutionResponse | null;
   loading: boolean;
   failed: boolean;
-  selectRange: (range: ModelSubstitutionRange) => void;
+  selectRange: (selection: ModelSubstitutionRangeSelection) => void;
 }
 
 /**
@@ -208,15 +208,18 @@ export function useModelSubstitution({ refreshKey = 0, onAuthRequired, enabled =
   onAuthRequired?: () => void;
   enabled?: boolean;
 } = {}): ModelSubstitutionController {
-  const [range, setRange] = useState<ModelSubstitutionRange>(DEFAULT_MODEL_SUBSTITUTION_RANGE);
+  const [selection, setSelection] = useState<ModelSubstitutionRangeSelection>(MODEL_SUBSTITUTION_CURRENT);
   const [data, setData] = useState<ModelSubstitutionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const auth = useRef(onAuthRequired);
   auth.current = onAuthRequired;
-  const rangeRef = useRef(range);
-  rangeRef.current = range;
+  // “当前”档向服务端要最小窗口（实时表不看历史趋势）；历史档直接用用户选的窗口。
+  const rangeFor = (next: ModelSubstitutionRangeSelection): ModelSubstitutionRange =>
+    next === MODEL_SUBSTITUTION_CURRENT ? MODEL_SUBSTITUTION_CURRENT_RANGE : next;
+  const rangeRef = useRef<ModelSubstitutionRange>(rangeFor(selection));
+  rangeRef.current = rangeFor(selection);
 
   const load = useCallback(async (requestedRange: ModelSubstitutionRange) => {
     controllerRef.current?.abort();
@@ -273,94 +276,19 @@ export function useModelSubstitution({ refreshKey = 0, onAuthRequired, enabled =
     return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
   }, [enabled, load]);
 
-  const selectRange = useCallback((next: ModelSubstitutionRange) => {
-    setRange(next);
-    void load(next);
+  const selectRange = useCallback((next: ModelSubstitutionRangeSelection) => {
+    setSelection(next);
+    void load(rangeFor(next));
   }, [load]);
 
-  return { range, data, loading, failed, selectRange };
+  return { selection, range: rangeFor(selection), data, loading, failed, selectRange };
 }
 
 /**
- * “最近模型观测”表：每个请求模型一行，展示最新上游应答与 state 判定。
- * 始终保留未观测/未知的中性呈现，不让缺失数据看起来像正常。
- */
-function LatestObservationTable({ rows }: LatestObservationTableProps) {
-  const { t } = useTranslation();
-  const unknown = t('turn_state.unknown');
-
-  // 归一化层保证 current 是数组；这里再容错一次，旧后端或未归一化的载荷只会显示空状态。
-  const observations = Array.isArray(rows) ? rows : [];
-  if (observations.length === 0) {
-    // 空状态也留在同一容器内，调用方可以稳定地定位这个区块。
-    return <div className={styles.currentSurface} data-model-subscription-current>
-      <p className={styles.empty} data-model-subscription-current-empty>{t('turn_state.model_sub_current_empty')}</p>
-    </div>;
-  }
-
-  const formatObserved = (row: ModelSubstitutionCurrentRow): { relative: string; exact: string } => {
-    const amount = toRelativeTimeAmount(row.age_seconds);
-    const parsed = Date.parse(row.observed_at);
-    const exact = Number.isNaN(parsed) ? unknown : new Date(parsed).toLocaleString();
-    if (!amount) return { relative: exact, exact };
-    if (amount.unit === 'second' && amount.value < 5) return { relative: t('turn_state.model_sub_current_just_now'), exact };
-    const key = {
-      second: 'turn_state.model_sub_current_seconds_ago',
-      minute: 'turn_state.model_sub_current_minutes_ago',
-      hour: 'turn_state.model_sub_current_hours_ago',
-      day: 'turn_state.model_sub_current_days_ago',
-    }[amount.unit];
-    return { relative: t(key, { count: amount.value }), exact };
-  };
-
-  const stateCheckCell = (row: ModelSubstitutionCurrentRow) => {
-    // 未上报 state 时返回 null，渲染为中性“无”，绝不显示成正常。
-    const presentation = resolveStateCheckPresentation(row.state_check ?? '', row.state_check_reason ?? '');
-    if (!presentation) return { tone: 'neutral' as const, label: t('usage_stats.request_events_state_check_none') };
-    const label = presentation.labelKey ? t(presentation.labelKey) : presentation.verdictCode;
-    const detail = formatStateCheckDetail(row.state_check ?? '', row.state_check_reason ?? '', {
-      observedBlocks: row.state_check_observed_blocks,
-      expectedBlocks: row.state_check_expected_blocks,
-    }, t);
-    return { tone: presentation.tone, label: detail ? `${label} · ${detail}` : label };
-  };
-
-  return <div className={styles.currentSurface} data-model-subscription-current>
-    <table className={styles.currentTable}>
-      <thead>
-        <tr>
-          <th scope="col">{t('turn_state.model_sub_current_requested')}</th>
-          <th scope="col">{t('turn_state.model_sub_current_upstream')}</th>
-          <th scope="col">{t('turn_state.model_sub_current_result')}</th>
-          <th scope="col">{t('turn_state.model_sub_current_last_observed')}</th>
-          <th scope="col">{t('turn_state.model_sub_current_state')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {observations.map((row) => {
-          const observed = formatObserved(row);
-          const tone = currentResultTone(row);
-          const state = stateCheckCell(row);
-          return <tr key={`${row.requested_model}|${row.upstream_model}|${row.observed_at}`}>
-            <th scope="row" className={styles.currentModel}>{row.requested_model}</th>
-            <td className={styles.currentModel}>{row.upstream_model}</td>
-            <td className={toneClassNames[tone]} data-current-result={tone}>{t(currentResultLabelKey(row))}</td>
-            <td className={styles.currentObserved}>
-              <span title={observed.exact}>{observed.relative}</span>
-              <small className={styles.currentObservedExact}>{observed.exact}</small>
-            </td>
-            <td className={toneClassNames[state.tone]} data-current-state={state.tone}>{state.label}</td>
-          </tr>;
-        })}
-      </tbody>
-    </table>
-    <p className={styles.chartNote}>{t('turn_state.model_sub_current_polling')}</p>
-  </div>;
-}
-
-/**
- * 模型替换观测：请求模型 vs 上游模型的时间趋势与矩阵。
- * 数据来自 usage_events 历史（upstream_model 为新字段，历史行为空），因此始终显示覆盖样本量。
+ * 历史趋势与矩阵：合并总表给出的“现在怎么样”，这里给出“随时间怎么变”。
+ *
+ * 时间维度选择器由父级（合并总表卡片）统一持有，两处共享同一个 selection，
+ * 因此不在本组件里再渲染一份控制器——重复的控制件会让两处显示不一致。
  */
 export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired, controller }: ModelSubstitutionPanelProps) {
   const { t } = useTranslation();
@@ -368,7 +296,7 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired, control
   const isMobile = useMediaQuery('(max-width: 768px)');
   // 外部传入控制器时内部拉取必须关闭，否则两个 hook 会同时轮询同一接口。
   const internal = useModelSubstitution({ refreshKey, onAuthRequired, enabled: !controller });
-  const { range, data, loading, failed, selectRange } = controller ?? internal;
+  const { data, loading, failed } = controller ?? internal;
 
   const series = useMemo(() => (data ? buildModelSubstitutionChartSeries(data) : []), [data]);
   const matrix = useMemo(() => (data ? buildModelSubstitutionMatrix(data) : { columns: [], rows: [] }), [data]);
@@ -385,23 +313,10 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired, control
   }, [data, summary?.top_substitution]);
 
   return (
-    <section className={styles.panel} aria-label={t('turn_state.model_sub_title')}>
+    <section className={styles.panel} aria-label={t('turn_state.model_sub_trend_title')}>
       <Card
-        title={t('turn_state.model_sub_title')}
+        title={t('turn_state.model_sub_trend_title')}
         subtitle={t('turn_state.model_sub_help')}
-        extra={<div className={styles.rangeGroup} role="group" aria-label={t('turn_state.model_sub_range_label')}>
-          {MODEL_SUBSTITUTION_RANGES.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`${styles.rangeButton} ${value === (data?.range ?? range) ? styles.rangeButtonActive : ''}`.trim()}
-              aria-pressed={value === (data?.range ?? range)}
-              onClick={() => selectRange(value)}
-            >
-              {t(RANGE_LABEL_KEYS[value])}
-            </button>
-          ))}
-        </div>}
       >
         <p className={styles.coverage} data-model-subscription-coverage>
           {summary
@@ -411,12 +326,7 @@ export function ModelSubstitutionPanel({ refreshKey = 0, onAuthRequired, control
         {failed && !data && <p role="status" className={styles.warning}>{t('turn_state.model_sub_unavailable')}</p>}
         {/* 刷新失败时保留上一份数据，但必须说明当前显示的不是所选范围。 */}
         {failed && data && <p role="status" className={styles.warning} data-model-subscription-stale>{t('turn_state.stale')}</p>}
-        {/* 最近观测放在最前：先回答“现在谁被换成了谁”，再看历史趋势。 */}
-        {data && <section className={styles.currentSurface} aria-label={t('turn_state.model_sub_current_title')}>
-          <h4 className={styles.currentTitle}>{t('turn_state.model_sub_current_title')}</h4>
-          <p className={styles.coverage}>{t('turn_state.model_sub_current_help')}</p>
-          <LatestObservationTable rows={data.current} />
-        </section>}
+        {/* 最近观测已由合并总表承载，这里不再重复渲染一张“最近观测”表。 */}
         {data && summary && <>
           <div className={styles.summaryGrid}>
             <div className={styles.summaryCard}>

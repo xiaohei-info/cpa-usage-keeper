@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchTurnStateOverview } from '@/lib/api';
 import type { TurnStateFailure, TurnStateOverview, TurnStateSession, TurnStateSummary } from '@/lib/turnState';
+import {
+  MODEL_SUBSTITUTION_CURRENT,
+  MODEL_SUBSTITUTION_RANGE_SELECTIONS,
+} from '@/lib/modelSubstitution';
 import { Card } from '@/components/ui/Card';
 import { ModelSubstitutionPanel, useModelSubstitution } from './ModelSubstitutionPanel';
+import { TurnStateMergedTable } from './TurnStateMergedTable';
 import {
   formatStateComparison,
   formatStateShape,
@@ -26,6 +31,15 @@ const PHASE_STATUS_KEYS: Record<string, string> = {
   blocked: 'turn_state.status_paused',
   paused: 'turn_state.status_paused',
   unsupported: 'turn_state.status_not_applicable',
+};
+
+/** 时间维度按钮的文字 key；“当前”档单独处理，不在这里。 */
+const RANGE_LABEL_KEYS: Record<string, string> = {
+  '1h': 'turn_state.model_sub_range_1h',
+  '6h': 'turn_state.model_sub_range_6h',
+  '24h': 'turn_state.model_sub_range_24h',
+  '7d': 'turn_state.model_sub_range_7d',
+  '30d': 'turn_state.model_sub_range_30d',
 };
 
 /** 事件结论句映射（契约 §5）；未列出的码走通用兜底并保留原始码。 */
@@ -84,20 +98,6 @@ const relativeTime = (iso: string | null, now: number, t: Translate): string | n
   return t('turn_state.relative_days_ago', { count: Math.floor(seconds / 86_400) });
 };
 
-const countdown = (iso: string | null, now: number, t: Translate): string | null => {
-  if (!iso) return null;
-  const parsed = Date.parse(iso);
-  if (Number.isNaN(parsed)) return null;
-  const seconds = Math.ceil((parsed - now) / 1000);
-  if (seconds <= 0) return t('turn_state.countdown_now');
-  if (seconds < 60) return t('turn_state.countdown_seconds', { count: seconds });
-  return t('turn_state.countdown_minutes', { count: Math.ceil(seconds / 60) });
-};
-
-/** 形状推导值只在没有实测长度时使用，且始终与块数一起出现。 */
-const shapeWithFallbackLength = (length: number | null, blocks: number | null, t: Translate): string =>
-  formatStateShape(blocks, t, length ?? stateShapeCharacters(blocks));
-
 export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?: number; onAuthRequired?: () => void }) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<TurnStateOverview | null>(null);
@@ -132,24 +132,13 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   useEffect(() => { refresh.current(); }, [refreshKey]);
 
   const unknown = t('turn_state.unknown');
-  // 模型替换数据只拉一次；结论卡（§2）与替换历史（§7）共用这一份，避免同一屏两组数字打架。
+  // 模型替换数据只拉一次；合并总表与趋势图共用这一份，避免同一屏两组数字打架。
   const substitution = useModelSubstitution({ refreshKey, onAuthRequired });
   const topSubstitution = substitution.data?.summary.top_substitution ?? null;
   const formatCount = (value: number) => value.toLocaleString();
   const remainingMinutes = (state: TurnStateSummary | null) => state ? Math.max(0, Math.floor((Date.parse(state.expires_at) - now) / 60_000)) : 0;
 
   // 徽标只用契约允许的状态词；未知 phase 归到“未就绪”，不显示原始码。
-  const statusText = (session: TurnStateSession) => {
-    if (session.excluded) return t('turn_state.status_not_applicable');
-    const key = PHASE_STATUS_KEYS[session.phase] ?? 'turn_state.status_not_ready';
-    return t(key);
-  };
-  const statusTone = (session: TurnStateSession) => {
-    if (session.excluded) return styles.muted;
-    if (session.active?.usable) return styles.good;
-    if (session.phase === 'blocked' || session.phase === 'paused') return styles.warn;
-    return styles.muted;
-  };
 
   /**
    * 失败原因的单一映射入口：先看结论句（no_state / incomplete / auth_blocked …），
@@ -166,25 +155,6 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   };
 
   /** 会话最近一次失败原因：优先用 proxy 的结构化 last_failure，缺失时按最后结果码说明。 */
-  const sessionFailure = (session: TurnStateSession): string | null => {
-    const failure: TurnStateFailure | null | undefined = session.last_failure;
-    // 成功类结果不是失败，不得渲染“失败原因”行（否则成功也会显示一条未知原因）。
-    if (!failure) {
-      const result = session.last_result ?? null;
-      if (!result || SUCCESS_RESULTS.has(result) || result === 'model_unknown' || result === 'dispatched') return null;
-      return failureLabel(result, null);
-    }
-    const label = failureLabel(failure.code ?? null, failure.reason ?? null) ?? t('turn_state.event_rule_unknown', { code: failure.code });
-    // 形状先整体格式化，再一次性拼到标签后面。
-    const comparison = formatStateComparison(
-      failure.observed_blocks,
-      failure.expected_blocks,
-      t,
-      stateShapeCharacters(failure.observed_blocks),
-      stateShapeCharacters(failure.expected_blocks),
-    );
-    return comparison ? `${label}：${comparison}` : label;
-  };
 
   const stale = snapshot && (failed || now - Date.parse(snapshot.server_time) > 90_000 || (fetched && now - Date.parse(fetched) > 90_000));
   const sessions = snapshot?.sessions ?? [];
@@ -254,14 +224,38 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   const countText = (value: number | null | undefined) => value == null ? t('turn_state.not_available') : t('turn_state.config_count', { value });
 
   return <section className={styles.panel} aria-label={t('turn_state.title')}>
-    {/* 模型替换观测是页面的第一结论：谁被换成了谁，优先于 proxy 运行时缓存细节。
-        它读 Keeper 自己的库，proxy 概览不可用时也必须继续渲染。 */}
-    <ModelSubstitutionPanel controller={substitution} />
-    <Card title={t('turn_state.title')} subtitle={t('turn_state.updated_at', { time: dateTime(fetched, unknown) })}>
+    {/* 合并总表是页面的第一结论：谁被换成了谁、state 怎么样、采到没有，
+        三件事在同一个「账号 x 模型」行里回答，不再分成两块大盘各自汇总。 */}
+    <Card title={t('turn_state.title')} subtitle={t('turn_state.merged_help')}
+      extra={<div className={styles.rangeGroup} role="group" aria-label={t('turn_state.model_sub_range_label')}>
+        {MODEL_SUBSTITUTION_RANGE_SELECTIONS.map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={`${styles.rangeButton} ${value === substitution.selection ? styles.rangeButtonActive : ''}`.trim()}
+            aria-pressed={value === substitution.selection}
+            onClick={() => substitution.selectRange(value)}
+          >
+            {value === MODEL_SUBSTITUTION_CURRENT ? t('turn_state.merged_range_current') : t(RANGE_LABEL_KEYS[value])}
+          </button>
+        ))}
+      </div>}
+    >
       <p role="status" className={stale ? styles.warning : styles.snapshotStatus} data-turn-state-status>
         {!snapshot ? t(failed ? 'turn_state.unavailable' : 'common.loading') : stale ? t('turn_state.stale') : t('turn_state.current')}
       </p>
+      {substitution.failed && !substitution.data && <p role="status" className={styles.warning}>{t('turn_state.model_sub_unavailable')}</p>}
+      {/* 刷新失败时保留上一份数据，但必须说明当前显示的不是所选范围。 */}
+      {substitution.failed && substitution.data && <p role="status" className={styles.warning} data-model-subscription-stale>{t('turn_state.stale')}</p>}
+      <TurnStateMergedTable
+        rows={substitution.data?.current ?? []}
+        sessions={snapshot?.sessions ?? []}
+        selection={substitution.selection}
+      />
+      <p className={styles.cardMeta}>{t('turn_state.merged_polling')}</p>
     </Card>
+    {/* 历史趋势与矩阵从合并总表里拆出来：总表回答“现在”，趋势回答“随时间怎么变”。 */}
+    <ModelSubstitutionPanel controller={substitution} />
     {snapshot && <>
       <div className={styles.overviewGrid}>
         <Card title={t('turn_state.overview_ready')}>
@@ -378,65 +372,6 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
         </table>
       </Card>
 
-      <Card title={t('turn_state.sessions')} subtitle={t('turn_state.session_help')}>
-        {!sessions.length && <p>{t('turn_state.empty')}</p>}
-        {sessions.map((session, index) => <article key={`${session.entry_id}:${session.model}:${index}`} className={styles.entry}>
-          <div className={styles.sessionHeader}>
-            <div>
-              <h4>{session.account_label ?? session.entry_id.slice(0, 12)} · {session.model}</h4>
-            </div>
-            <span className={`${styles.badge} ${statusTone(session)}`}>{statusText(session)}</span>
-          </div>
-          {session.excluded
-            ? <p className={styles.subtle}>{t('turn_state.excluded_reason')}</p>
-            : <dl className={styles.fields}>
-              <div>
-                <dt>{t('turn_state.current_state')}</dt>
-                <dd>{session.active?.usable
-                  ? `${t('turn_state.state_ready')}（${shapeWithFallbackLength(session.active.length, session.active.blocks, t)}，${t('turn_state.remaining')} ${remainingMinutes(session.active)} ${t('turn_state.minutes')}）`
-                  : t('turn_state.state_unavailable')}</dd>
-              </div>
-              <div>
-                <dt>{t('turn_state.last_probe')}</dt>
-                <dd>{relativeTime(session.last_observed_at, now, t) ?? t('turn_state.not_available')}
-                  {session.last_result ? ` · ${EVENT_RESULT_KEYS[session.last_result] ? t(EVENT_RESULT_KEYS[session.last_result]) : session.last_result}` : ''}</dd>
-              </div>
-              {sessionFailure(session) && <div className={styles.failureField}><dt>{t('turn_state.failure_reason')}</dt><dd data-turn-state-failure>{sessionFailure(session)}</dd></div>}
-              <div><dt>{t('turn_state.requested_model')}</dt><dd>{session.model}</dd></div>
-              <div>
-                <dt>{t('turn_state.actual_model')}</dt>
-                <dd>{session.last_upstream_model
-                  ? `${session.last_upstream_model}（${session.model_mismatch ? t('turn_state.model_replaced') : t('turn_state.model_matched')}）`
-                  : t('turn_state.model_unobserved')}</dd>
-              </div>
-              {session.next_probe_at && <div><dt>{t('turn_state.next_probe')}</dt><dd>{countdown(session.next_probe_at, now, t)}</dd></div>}
-              <div>
-                <dt>{t('turn_state.business_injection')}</dt>
-                <dd>{session.injection_count === 0
-                  ? t('turn_state.injection_none')
-                  : t('turn_state.injection_count', { count: session.injection_count, time: dateTime(session.last_injected_at, unknown) })}</dd>
-              </div>
-              <div>
-                <dt>{t('turn_state.backup_state')}</dt>
-                <dd>{session.ready?.usable
-                  ? `${t('turn_state.available')}（${shapeWithFallbackLength(session.ready.length, session.ready.blocks, t)}）`
-                  : t('turn_state.none')}</dd>
-              </div>
-              {!!session.ws_connection_reused && <div><dt>{t('turn_state.reused_connections')}</dt><dd>{formatCount(session.ws_connection_reused)}</dd></div>}
-            </dl>}
-          {/* 只渲染存在值的诊断项；缺值的项不出现，不用“未知”占位。 */}
-          <details>
-            <summary>{t('turn_state.technical_details')}</summary>
-            <dl className={styles.fields}>
-              <div><dt>{t('turn_state.entry_id')}</dt><dd>{session.entry_id}</dd></div>
-              {session.active?.route_id && <div><dt>{t('turn_state.route_id')}</dt><dd>{session.active.route_id}</dd></div>}
-              {session.active?.fingerprint && <div><dt>{t('turn_state.fingerprint')}</dt><dd>{session.active.fingerprint}</dd></div>}
-              {session.diagnostic && <div><dt>{t('turn_state.diagnostic')}</dt><dd>{session.diagnostic}</dd></div>}
-              {snapshot.epoch && <div><dt>{t('turn_state.epoch')}</dt><dd>{snapshot.epoch}</dd></div>}
-            </dl>
-          </details>
-        </article>)}
-      </Card>
     </>}
   </section>;
 }

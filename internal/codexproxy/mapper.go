@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// CodexProxyProbeAPIGroupKey 是主动探测事件在 usage_events.api_group_key 中的独立分组。
+//
+// 这是探测与业务数据的隔离机制：所有既有聚合查询都按 api_group_key 过滤，业务统计拿的
+// 是业务分组，因此探测数据天然被排除，不需要改动任何一处查询。source 两者都是
+// codex-proxy，因为探测确实也是这个 producer 产出的。
+const CodexProxyProbeAPIGroupKey = "codex-probe"
+
 func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
 	if e.EventType != "request.completed" && e.EventType != "request.failed" {
 		return entities.UsageEvent{}, fmt.Errorf("unsupported codex proxy event type %q", e.EventType)
@@ -42,7 +49,13 @@ func (e Event) UsageEvent(fetchedAt time.Time) (entities.UsageEvent, error) {
 	if e.DownstreamTransport == "sse" && strings.HasPrefix(endpoint, "/") {
 		endpoint = "POST " + endpoint
 	}
-	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: e.Provider, Provider: e.Provider, Endpoint: endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, ReasoningEffort: e.ReasoningEffort, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total, UpstreamModel: optionalString(e.UpstreamModel), StateCheck: optionalString(e.StateCheck), StateCheckReason: optionalString(e.StateCheckReason), StateCheckObservedBlocks: e.StateCheckObservedBlocks, StateCheckExpectedBlocks: e.StateCheckExpectedBlocks}, nil
+	// 探测走独立分组，业务与探测的聚合结果因此互不污染；source 两者都是 codex-proxy，
+	// 因为探测确实也是这个 producer 产出的。
+	apiGroupKey := e.Provider
+	if e.Probe != nil && *e.Probe {
+		apiGroupKey = repository.CodexProxyProbeAPIGroupKey
+	}
+	return entities.UsageEvent{EventKey: e.EventID, APIGroupKey: apiGroupKey, Provider: e.Provider, Endpoint: endpoint, AuthType: "oauth", RequestID: e.RequestID, Model: e.Model, ReasoningEffort: e.ReasoningEffort, Timestamp: ts, Source: repository.CodexProxySource, AuthIndex: e.AccountEntryID, ExecutorType: tokenprocessor.CodexExecutor, Failed: e.Failed, Generate: boolPtr(!e.Failed), LatencyMS: valueInt64(e.LatencyMS), TTFTMS: e.TTFTMS, InputTokens: in, OutputTokens: out, ReasoningTokens: reason, CachedTokens: cached, CacheReadTokens: cached, TotalTokens: total, UpstreamModel: optionalString(e.UpstreamModel), StateCheck: optionalString(e.StateCheck), StateCheckReason: optionalString(e.StateCheckReason), StateCheckObservedBlocks: e.StateCheckObservedBlocks, StateCheckExpectedBlocks: e.StateCheckExpectedBlocks, ErrorCode: strings.TrimSpace(e.ErrorCode)}, nil
 }
 
 // optionalString 把可空观测字段折叠为空串；空值含义是“未观察到”，不是一致或正常。

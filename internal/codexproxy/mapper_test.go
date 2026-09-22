@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository"
 )
 
 func TestAccountUsageIdentityIsDedicatedAndNonSecret(t *testing.T) {
@@ -66,3 +67,47 @@ func TestEventDecodesOptionalTransport(t *testing.T) {
 		}
 	}
 }
+
+// 探测事件必须落到独立 api_group_key，否则它会混进业务统计；同一条事件去掉 probe
+// 标记后又必须回到业务分组。这是探测与业务数据的唯一隔离点。
+func TestProbeEventsMapToTheirOwnAPIGroupKey(t *testing.T) {
+	base := Event{
+		Schema: "codex-proxy.keeper-event.v1", EventID: "e1", EventType: "request.completed",
+		RequestID: "r1", AttemptID: "a1", AccountEntryID: "acct", Provider: "codex",
+		Endpoint: "/codex/responses", Model: "gpt-5.6-sol", Failed: false,
+	}
+	probe := base
+	probe.Probe = boolPointer(true)
+	mapped, err := probe.UsageEvent(time.Now())
+	if err != nil {
+		t.Fatalf("UsageEvent returned error: %v", err)
+	}
+	if mapped.APIGroupKey != repository.CodexProxyProbeAPIGroupKey {
+		t.Fatalf("probe event api_group_key = %q, want %q", mapped.APIGroupKey, repository.CodexProxyProbeAPIGroupKey)
+	}
+	// source 保持不变：探测确实也是 codex-proxy 产出的。
+	if mapped.Source != repository.CodexProxySource {
+		t.Fatalf("probe event source = %q, want %q", mapped.Source, repository.CodexProxySource)
+	}
+
+	// 缺省（旧 producer 不返回该字段）与显式 false 都必须留在业务分组。
+	for _, tc := range []struct {
+		name  string
+		probe *bool
+	}{
+		{name: "absent", probe: nil},
+		{name: "explicit false", probe: boolPointer(false)},
+	} {
+		event := base
+		event.Probe = tc.probe
+		business, err := event.UsageEvent(time.Now())
+		if err != nil {
+			t.Fatalf("%s: UsageEvent returned error: %v", tc.name, err)
+		}
+		if business.APIGroupKey != base.Provider {
+			t.Fatalf("%s: api_group_key = %q, want business group %q", tc.name, business.APIGroupKey, base.Provider)
+		}
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }

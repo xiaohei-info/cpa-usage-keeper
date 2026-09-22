@@ -1,0 +1,15 @@
+/* 合并总表：行 = 账号 x 模型，两块视觉分区（观测 / State 与采集）。 */
+.surface { margin: 0 0 1rem; padding: 14px; border: 1px solid var(--border-color, #8884); border-radius: var(--keeper-card-radius, 12px); background: var(--bg-secondary); min-width: 0; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.table th, .table td { padding: .4rem .55rem; border-bottom: 1px solid var(--border-color, #8884); text-align: left; white-space: nowrap; vertical-align: top; }
+.table thead th { color: var(--text-secondary, #aaa); font-weight: 600; }
+/* 第一行是分区标题（观测 / State 与采集），比普通表头更强以明确分组边界。 */
+.groupRow th { border-bottom: 1px solid var(--border-color, #8886); font-size: .8rem; letter-spacing: .02em; text-transform: uppercase; opacity: .85; }
+.account, .model { font-variant-numeric: tabular-nums; font-weight: 600; overflow-wrap: anywhere; }
+.observed { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+.count { font-variant-numeric: tabular-nums; text-align: right; }
+.detail { display: block; color: var(--text-secondary, #aaa); font-size: .75rem; }
+.empty { margin: .25rem 0; }
+/* 排序列头是可点击按钮，但必须看起来仍像表头文字。 */
+.sortButton { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.sortButton:hover { text-decoration: underline; }

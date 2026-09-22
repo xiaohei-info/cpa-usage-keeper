@@ -74,20 +74,36 @@ type modelSubstitutionRequestedRow struct {
 	MatchRate         *float64 `json:"match_rate"`
 }
 
-// modelSubstitutionCurrentRow 是页面顶部“最近模型观测”表的一行。
+// modelSubstitutionCurrentRow 是合并总表的一行：账号 x 模型。
 // AgeSeconds 由服务端相对 now 计算并夹紧到 >=0，避免前端用错误时钟得出负时长；
-// state 字段用指针区分“未上报”与空串。
+// state 字段用指针区分“未上报”与空串；百分比用指针区分“无样本”与 0%。
 type modelSubstitutionCurrentRow struct {
-	RequestedModel           string  `json:"requested_model"`
-	UpstreamModel            string  `json:"upstream_model"`
-	Matched                  bool    `json:"matched"`
-	ObservedAt               string  `json:"observed_at"`
-	AgeSeconds               int64   `json:"age_seconds"`
-	StateCheck               *string `json:"state_check"`
-	StateCheckReason         *string `json:"state_check_reason"`
-	StateCheckObservedBlocks *int64  `json:"state_check_observed_blocks"`
-	StateCheckExpectedBlocks *int64  `json:"state_check_expected_blocks"`
-	AccountEntryID           *string `json:"account_entry_id"`
+	RequestedModel           string   `json:"requested_model"`
+	UpstreamModel            string   `json:"upstream_model"`
+	Matched                  bool     `json:"matched"`
+	ObservedAt               string   `json:"observed_at"`
+	Observed                 bool     `json:"observed"`
+	AgeSeconds               int64    `json:"age_seconds"`
+	StateCheck               *string  `json:"state_check"`
+	StateCheckReason         *string  `json:"state_check_reason"`
+	StateCheckObservedBlocks *int64   `json:"state_check_observed_blocks"`
+	StateCheckExpectedBlocks *int64   `json:"state_check_expected_blocks"`
+	AccountEntryID           *string  `json:"account_entry_id"`
+	// AccountName 是账号显示名（别名 -> 邮箱）；null 表示未登记，前端回退到 id 前 8 位。
+	AccountName *string `json:"account_name"`
+	// 业务窗口聚合：请求数、替换数与替换率（无带模型信息的样本时 null，不是 0%）。
+	RequestCount int64    `json:"request_count"`
+	Mismatched   int64    `json:"mismatched"`
+	MismatchRate *float64 `json:"mismatch_rate"`
+	// 被动采集：已上报 state_check 的样本数、失败数与降智率。
+	StateCheckObserved    int64    `json:"state_check_observed"`
+	StateCheckFailed      int64    `json:"state_check_failed"`
+	StateCheckFailureRate *float64 `json:"state_check_failure_rate"`
+	// 主动探测执行统计（独立 api_group_key）。
+	ProbeAttempts int64 `json:"probe_attempts"`
+	ProbeAccepted int64 `json:"probe_accepted"`
+	ProbeRejected int64 `json:"probe_rejected"`
+	ProbeTimeouts int64 `json:"probe_timeouts"`
 }
 
 // registerModelSubstitutionRoute 挂在 admin group 下；只读，不接受任何变更方法。
@@ -178,8 +194,21 @@ func buildModelSubstitutionResponse(snapshot repository.ModelSubstitutionSnapsho
 			RequestedModel: observation.RequestedModel,
 			UpstreamModel:  observation.UpstreamModel,
 			Matched:        observation.Matched,
-			ObservedAt:     observation.ObservedAt.Format(time.RFC3339),
-			AgeSeconds:     modelSubstitutionAgeSeconds(observation.ObservedAt, now),
+			// 没有观测的组（只在聚合里出现）必须显式告知前端，否则会渲染成一个假的历史时刻。
+			Observed:   !observation.ObservedAt.IsZero(),
+			ObservedAt: observation.ObservedAt.Format(time.RFC3339),
+			AgeSeconds: modelSubstitutionAgeSeconds(observation.ObservedAt, now),
+			// 替换率只在有带模型信息的样本时可计算；0 样本返回 nil 而不是 0%。
+			RequestCount:          observation.RequestCount,
+			Mismatched:            observation.Mismatched,
+			MismatchRate:          modelSubstitutionRate(observation.Mismatched, observation.RequestCount),
+			StateCheckObserved:    observation.StateCheckObserved,
+			StateCheckFailed:      observation.StateCheckFailed,
+			StateCheckFailureRate: modelSubstitutionRate(observation.StateCheckFailed, observation.StateCheckObserved),
+			ProbeAttempts:         observation.ProbeAttempts,
+			ProbeAccepted:         observation.ProbeAccepted,
+			ProbeRejected:         observation.ProbeRejected,
+			ProbeTimeouts:         observation.ProbeTimeouts,
 		}
 		// 空值与未知判定码都保留为 null/原文，前端中性呈现，绝不把缺失读成正常。
 		if code := strings.TrimSpace(observation.StateCheck); code != "" {
@@ -190,6 +219,9 @@ func buildModelSubstitutionResponse(snapshot repository.ModelSubstitutionSnapsho
 		}
 		if account := strings.TrimSpace(observation.AccountEntryID); account != "" {
 			row.AccountEntryID = &account
+		}
+		if name := strings.TrimSpace(observation.AccountName); name != "" {
+			row.AccountName = &name
 		}
 		row.StateCheckObservedBlocks = observation.StateCheckObservedBlocks
 		row.StateCheckExpectedBlocks = observation.StateCheckExpectedBlocks

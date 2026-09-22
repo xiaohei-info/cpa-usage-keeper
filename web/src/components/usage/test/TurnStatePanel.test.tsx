@@ -21,10 +21,9 @@ it('shows read-only snapshot, unknown usage, epoch resets and stale failure; pau
   const node = document.createElement('div'); const root = createRoot(node);
   await act(async () => root.render(<TurnStatePanel />));
   expect(node.textContent).toContain('turn_state.current');
+  // 可用性结论卡仍在（全局汇总），账号 x 模型的明细由合并总表承载。
   expect(node.textContent).toContain('turn_state.overview_ready');
-  // 会话卡不再展示内部枚举占位，但必须给出可读状态与备用 State 行。
-  expect(node.textContent).toContain('turn_state.state_ready'); expect(node.textContent).toContain('turn_state.backup_state');
-  // Turn-State 快照本身仍然只读；页面上唯一的交互控件是模型替换观测的范围选择器。
+  // Turn-State 快照本身仍然只读；页面上唯一的交互控件是时间维度选择器与排序列头。
   const controls = [...node.querySelectorAll('button, input, a')];
   expect(controls.every((control) => control.getAttribute('aria-pressed') !== null)).toBe(true);
   fetcher.mockRejectedValueOnce(new Error('private error'));
@@ -48,6 +47,7 @@ it('reports unavailable without zero counts and preserves Keeper authentication 
   await act(async () => root.render(<TurnStatePanel onAuthRequired={onAuthRequired} />));
   expect(node.textContent).toContain('turn_state.unavailable'); expect(node.textContent).not.toContain('turn_state.counters'); expect(onAuthRequired).toHaveBeenCalledOnce();
   // 模型替换观测只读 Keeper 自己的历史，proxy 概览不可用时也必须继续渲染。
-  expect(node.textContent).toContain('turn_state.model_sub_title');
+  // 合并总表与趋势面板都只读 Keeper 自己的库，proxy 概览不可用时也必须继续渲染。
+  expect(node.textContent).toContain('turn_state.merged_help');
   await act(async () => root.unmount());
 });
