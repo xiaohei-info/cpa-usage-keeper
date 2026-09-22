@@ -230,6 +230,9 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
   const activeRejected = snapshot?.summary.active_rejected ?? snapshot?.summary.rejected_probes ?? 0;
   // 累计起点是可选字段；缺失时不渲染该行，不编造一个时间。
   const cumulativeSince = snapshot?.summary.since ?? null;
+  /** 滚动 1 小时的真实 dispatch 速率。这是用户把控消耗的实时数字，与累计数互补。
+   *  旧 proxy 不返回该字段，此时整行不渲染，绝不能退化成 0。 */
+  const activeLastHour = snapshot?.summary.active_last_hour ?? null;
   /** 某个来源最近一次事件的时间：主动探测用它而非 last_injected_at（仅观察模式从不注入，后者永远是空）。 */
   const latestEventAt = (source: 'passive' | 'active'): string | null => {
     for (let index = events.length - 1; index >= 0; index--) {
@@ -270,6 +273,7 @@ export function TurnStatePanel({ refreshKey = 0, onAuthRequired }: { refreshKey?
           <p>{activeAttempts === 0
             ? t('turn_state.overview_capture_none')
             : t('turn_state.overview_capture_split', { accepted: activeAccepted, rejected: activeRejected })}</p>
+          {activeLastHour !== null && <p className={styles.cardMeta} data-turn-state-active-last-hour>{t('turn_state.overview_last_hour', { count: activeLastHour })}</p>}
           <p className={styles.cardMeta}>{t('turn_state.last_updated', { time: relativeTime(lastActiveAt, now, t) ?? t('turn_state.not_available') })}</p>
           {cumulativeSince && <p className={styles.cardMeta} data-turn-state-active-since>{t('turn_state.overview_since', { time: dateTime(cumulativeSince, unknown) })}</p>}
           {lastActiveFailure && <p className={styles.failureNote} data-turn-state-active-failure>{lastActiveFailure}</p>}

@@ -174,6 +174,7 @@ const STRINGS: Record<string, string> = {
   'turn_state.overview_ready_help': '当前可用于注入',
   'turn_state.overview_ready_none': '当前没有可注入的状态',
   'turn_state.overview_probes': '主动采集',
+  'turn_state.overview_last_hour': '过去 1 小时 {{count}} 次',
   'turn_state.overview_since': '累计自 {{time}}',
   'turn_state.event_ticket_verified': '主动采集成功，已保存可用状态',
   'turn_state.event_ticket_model_mismatch': '上游返回的模型不一致，采集失败',
@@ -505,6 +506,27 @@ it('falls back to active_probes when the proxy predates the merged counters', as
   const card = [...node.querySelectorAll('h3')].find((item) => item.textContent === '主动采集')?.closest('.card');
   expect(card!.textContent).toContain('7');
   expect(card!.textContent).toContain('成功 2 次 · 未通过 5 次');
+  await act(async () => root.unmount());
+});
+
+it('shows the rolling hourly dispatch rate when the proxy reports it', async () => {
+  // 累计数回答不了"现在跑多快"；实时速率行是用户把控消耗的唯一数字。
+  const { node, root } = await render({
+    summary: { ...fixture.summary, active_attempts: 13, active_accepted: 1, active_rejected: 12, active_last_hour: 7 },
+  });
+  const rate = node.querySelector('[data-turn-state-active-last-hour]');
+  expect(rate).not.toBeNull();
+  expect(rate!.textContent).toBe('过去 1 小时 7 次');
+  await act(async () => root.unmount());
+});
+
+it('omits the hourly rate row entirely on a proxy that does not report it', async () => {
+  // 旧 proxy 无该字段：整行不渲染，绝不退化成 "过去 1 小时 0 次"。
+  const { node, root } = await render({
+    summary: { ...fixture.summary, active_attempts: 13, active_accepted: 1, active_rejected: 12 },
+  });
+  expect(node.querySelector('[data-turn-state-active-last-hour]')).toBeNull();
+  expect(node.textContent).not.toContain('过去 1 小时');
   await act(async () => root.unmount());
 });
 

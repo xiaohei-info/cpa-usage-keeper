@@ -216,7 +216,7 @@ func TestTurnStateOverviewKeepsActiveAttemptMetrics(t *testing.T) {
 	}
 	body := strings.Replace(string(fixture),
 		`"active_probes": 0,`,
-		`"active_probes": 0, "active_attempts": 13, "active_accepted": 1, "active_rejected": 12, "since": "2026-09-21T00:00:00Z",`, 1)
+		`"active_probes": 0, "active_attempts": 13, "active_accepted": 1, "active_rejected": 12, "active_last_hour": 7, "since": "2026-09-21T00:00:00Z",`, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(body))
 	}))
@@ -238,12 +238,15 @@ func TestTurnStateOverviewKeepsActiveAttemptMetrics(t *testing.T) {
 	if got.Summary.Since == nil || *got.Summary.Since != "2026-09-21T00:00:00Z" {
 		t.Fatalf("since not decoded: %#v", got.Summary.Since)
 	}
+	if got.Summary.ActiveLastHour == nil || *got.Summary.ActiveLastHour != 7 {
+		t.Fatalf("active_last_hour not decoded: %#v", got.Summary.ActiveLastHour)
+	}
 
 	data, err := json.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"active_attempts", "active_accepted", "active_rejected", "since"} {
+	for _, key := range []string{"active_attempts", "active_accepted", "active_rejected", "active_last_hour", "since"} {
 		if !strings.Contains(string(data), `"`+key+`"`) {
 			t.Fatalf("%s dropped on re-serialization", key)
 		}
@@ -259,7 +262,7 @@ func TestTurnStateOverviewKeepsActiveAttemptMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("older snapshot rejected: %v", err)
 	}
-	if legacy.Summary.ActiveAttempts != nil || legacy.Summary.Since != nil {
+	if legacy.Summary.ActiveAttempts != nil || legacy.Summary.Since != nil || legacy.Summary.ActiveLastHour != nil {
 		t.Fatal("absent merged metric must stay nil, not become a value")
 	}
 }

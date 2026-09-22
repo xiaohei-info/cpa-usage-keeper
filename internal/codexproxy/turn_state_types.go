@@ -51,6 +51,9 @@ type TurnStateCounters struct {
 	ActiveAccepted *int64  `json:"active_accepted,omitempty"`
 	ActiveRejected *int64  `json:"active_rejected,omitempty"`
 	Since          *string `json:"since,omitempty"`
+	// The rolling dispatch rate, which is what an operator watches to see the current
+	// collection pace; the cumulative counters above cannot answer "how fast right now".
+	ActiveLastHour *int64 `json:"active_last_hour,omitempty"`
 }
 type TurnStateSession struct {
 	EntryId          string            `json:"entry_id"`

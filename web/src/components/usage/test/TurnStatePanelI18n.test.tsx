@@ -29,7 +29,7 @@ const NOW = fixture.server_time;
 const overview = () => ({
   ...fixture,
   summary: { ...fixture.summary, active_probes: 0, accepted_probes: 0, rejected_probes: 0,
-    active_attempts: 13, active_accepted: 1, active_rejected: 12, since: NOW },
+    active_attempts: 13, active_accepted: 1, active_rejected: 12, active_last_hour: 7, since: NOW },
   events: [
     { id: 't1', at: NOW, entry_id: 'acct', model: 'gpt-6-astra', source: 'ticket', action: 'harvest',
       result: 'ticket_model_mismatch', length: null, blocks: null, reason: 'ticket_model_mismatch',
@@ -57,6 +57,9 @@ it('renders every locale without leaking a raw i18n key', async () => {
     expect(text).toContain(i18n.getResource(language, 'translation', 'turn_state.overview_probes'));
     expect(text).toContain(i18n.getResource(language, 'translation', 'turn_state.event_ticket_model_mismatch'));
     expect(text).toContain('13');
+    // 实时速率行也必须在每个语言下真的翻译出来。
+    expect(text).toContain(i18n.getResource(language, 'translation', 'turn_state.overview_last_hour').replace(/\s*\{\{count\}\}.*$/, ''));
+    expect(text).toContain('7');
     expect(text).toContain(i18n.getResource(language, 'translation', 'turn_state.overview_since').replace(/\s*\{\{time\}\}.*$/, ''));
     // 真实引擎渲染下，任何未翻译的 key 都会以字面前缀出现。
     expect(text).not.toContain('turn_state.');

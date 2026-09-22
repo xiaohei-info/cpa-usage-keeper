@@ -55,6 +55,15 @@ it('accepts the merged active-collection counters and rejects malformed values',
  // since 是时间戳：非 ISO 与其它时间字段同一口径，必须拒绝。
  expect(isTurnStateOverview({ ...fixture, summary: { ...withMetrics.summary, since: 'not-a-time' } })).toBe(false);
 });
+// 实时速率（滚动 1 小时 dispatch 数）同样是可加字段：旧 proxy 缺失仍合法，
+// 但出现时的非法值必须拒绝整份快照。
+it('accepts the rolling hourly dispatch rate and rejects malformed values', () => {
+ expect(isTurnStateOverview({ ...fixture, summary: { ...fixture.summary, active_last_hour: 7 } })).toBe(true);
+ // 旧 proxy 不返回该字段仍然是合法快照。
+ expect(isTurnStateOverview(fixture)).toBe(true);
+ expect(isTurnStateOverview({ ...fixture, summary: { ...fixture.summary, active_last_hour: -1 } })).toBe(false);
+ expect(isTurnStateOverview({ ...fixture, summary: { ...fixture.summary, active_last_hour: 'many' } })).toBe(false);
+});
 // 200 上限保持 fail-closed：超量由生产端修复，Keeper 不放宽。
 it('still rejects more than 200 events', () => {
  expect(isTurnStateOverview({ ...fixture, events: Array(201).fill(fixture.events[0]) })).toBe(false);
