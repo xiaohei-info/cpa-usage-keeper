@@ -168,13 +168,17 @@ export function TurnStateMergedTable({ rows, sessions, selection }: MergedTableP
           const passiveObserved = historical ? row.state_check_observed : (session?.observation_count ?? row.state_check_observed);
           const sessionAccepted = session?.passive_accepted ?? null;
           const sessionRejected = session?.passive_rejected ?? null;
-          // 当前档：只在 proxy 同时给出两端时拆分，否则只报总数。
-          // 绝不能拿总数减 0 冒充“全部成功”，也不能拿它去减 keeper 的窗口聚合
-          // （不同数据源、不同时间窗，会凭空造出“成功次数”）。
-          const passiveFailed: number | null = historical ? row.state_check_failed : sessionRejected;
-          const passiveAccepted: number | null = historical && passiveFailed !== null
-            ? Math.max(0, passiveObserved - passiveFailed)
-            : sessionAccepted;
+          // 当前档：只在 proxy 同时给出两端、且两端之和等于总数时才能拆分。
+          // 旧 proxy 不返回它们；升级前的持久化数据也只有总数而拆分从 0 起算，
+          // 两种情况下都不能编造拆分（曾经用总数减 0 冒称“全部成功”）。
+          const splitReconciles = sessionAccepted !== null && sessionRejected !== null
+            && sessionAccepted + sessionRejected === passiveObserved;
+          const passiveFailed: number | null = historical
+            ? row.state_check_failed
+            : (splitReconciles ? sessionRejected : null);
+          const passiveAccepted: number | null = historical
+            ? Math.max(0, passiveObserved - row.state_check_failed)
+            : (splitReconciles ? sessionAccepted : null);
           const activeAttempts = historical ? row.probe_attempts : ((session?.ticket_round_count ?? 0) + (session?.probe_count ?? 0));
           const activeAccepted = historical ? row.probe_accepted : 0;
           const activeRejected = historical ? row.probe_rejected : 0;

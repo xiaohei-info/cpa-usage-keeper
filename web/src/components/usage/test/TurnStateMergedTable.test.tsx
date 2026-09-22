@@ -187,6 +187,20 @@ it('reads the passive split from the session proxy counters, never by subtractin
   await act(async () => root.unmount());
 });
 
+it('hides the split when the counts do not reconcile with the total', async () => {
+  // 升级前的持久化数据：observation_count 从旧文件恢复，而拆分从 0 起算，
+  // 于是 obs=50 但 acc=rej=0。此时必须只显示总数，不能声称“50 全部成功”。
+  const { node, root } = await render(
+    [row({ state_check_observed: 50, state_check_failed: 0 })],
+    [{ ...fixture.sessions[0], entry_id: 'acct-a', model: 'gpt-5.6-sol',
+      observation_count: 50, passive_accepted: 0, passive_rejected: 0, injection_count: 0, active: null, ready: null }],
+  );
+  const text = bodyRows(node)[0].textContent ?? '';
+  expect(text).toContain('50');
+  expect(text).not.toContain('overview_capture_split');
+  await act(async () => root.unmount());
+});
+
 it('falls back neutrally when an older proxy omits the split', async () => {
   // 旧 proxy 没有 passive_accepted/rejected：不得相减造数，也不得抛错。
   const { node, root } = await render(
